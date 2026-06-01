@@ -1,5 +1,6 @@
 package com.yansunsky.sneakernet.items;
 
+import com.yansunsky.sneakernet.Config;
 import com.yansunsky.sneakernet.SneakerNet;
 import com.yansunsky.sneakernet.crypto.KeyManager;
 import com.yansunsky.sneakernet.crypto.VoucherCrypto;
@@ -13,7 +14,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.InteractionResult;
+import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -27,6 +28,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -46,23 +48,25 @@ public class TicketItem extends Item {
     }
 
     @Override
-    public InteractionResult use(Level level, Player player, InteractionHand hand) {
-        if (level.isClientSide()) return InteractionResult.PASS; // 仅服务端
+    public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
+        ItemStack itemStack = player.getItemInHand(hand);
+        if (level.isClientSide()) return InteractionResultHolder.pass(itemStack); // 仅服务端
 
         // [1] 检查玩家注视的方块
-        BlockHitResult hitResult = player.pick(player.getBlockReach(), 0, false);
+        HitResult hitResult = player.pick(5.0, 0, false);
         if (hitResult.getType() != HitResult.Type.BLOCK) {
-            return InteractionResult.PASS; // 没瞄准方块
+            return InteractionResultHolder.pass(itemStack); // 没瞄准方块
         }
+        BlockHitResult blockHitResult = (BlockHitResult) hitResult;
 
         // [2] 检查目标方块是否是容器
-        BlockPos blockPos = hitResult.getBlockPos();
+        BlockPos blockPos = blockHitResult.getBlockPos();
         BlockEntity blockEntity = level.getBlockEntity(blockPos);
 
         if (!(blockEntity instanceof Container container)) {
             player.sendSystemMessage(Component.translatable("sneakernet.ticket.not_container")
                     .withStyle(ChatFormatting.RED));
-            return InteractionResult.FAIL;
+            return InteractionResultHolder.fail(itemStack);
         }
 
         // [3] 检查是否有可信服务器
@@ -70,19 +74,18 @@ public class TicketItem extends Item {
         if (keyManager == null || keyManager.getTrustedServers().isEmpty()) {
             player.sendSystemMessage(Component.translatable("sneakernet.ticket.no_trusted_servers")
                     .withStyle(ChatFormatting.RED));
-            return InteractionResult.FAIL;
+            return InteractionResultHolder.fail(itemStack);
         }
 
         // [4] 先扣除 1 个 Ticket（防止重复触发）
-        ItemStack ticketStack = player.getItemInHand(hand);
-        ticketStack.shrink(1);
+        itemStack.shrink(1);
 
         // [5] 异步执行导出
         UUID playerUuid = player.getUUID();
         MinecraftServer server = level.getServer();
 
         SneakerNet.getCryptoExecutor().supplyAsync(() -> {
-            return doExport(container, blockEntity, keyManager, playerUuid);
+            return doExport(container, keyManager, playerUuid, level.registryAccess());
         }).thenAccept(result -> {
             // 切回主线程通知玩家
             server.execute(() -> {
@@ -102,26 +105,25 @@ public class TicketItem extends Item {
             });
         });
 
-        return InteractionResult.CONSUME;
+        return InteractionResultHolder.sidedSuccess(itemStack, level.isClientSide());
     }
 
     /**
      * 导出逻辑（在线程池中执行，不阻塞主线程）
      */
-    private static ExportResult doExport(Container container, BlockEntity blockEntity,
-                                         KeyManager keyManager, UUID playerUuid) {
+    private static ExportResult doExport(Container container, KeyManager keyManager,
+                                         UUID playerUuid, net.minecraft.core.RegistryAccess registryAccess) {
         try {
             // [a] 序列化容器 NBT
             byte[] nbtBytes = ItemNbtUtil.serializeContainerToBytes(
-                    container, blockEntity,
-                    blockEntity.getLevel().registryAccess()
+                    container, registryAccess
             );
 
             // [b] 对每个可信服务器各生成一份凭据
             List<String> voucherFileNames = new ArrayList<>();
             int ttlSeconds = Config.VOUCHER_TTL_HOURS.get() * 3600;
 
-            for (KeyManager.TrustedServer trustedServer : keyManager.getTrustedServers().values()) {
+            for (KeyManager.TrustedServer trustedServer : keyManager.getTrustedServers()) {
                 PublicKey targetPubKey = KeyManager.decodePublicKeyFromBase64(trustedServer.pubKeyBase64());
 
                 // [c] 加密 + 签名
@@ -137,9 +139,9 @@ public class TicketItem extends Item {
                 Path voucherDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/");
                 Files.createDirectories(voucherDir);
 
-                String fileName = trustedServer.name() + "_" + voucher.suggestedFilename();
+                String fileName = trustedServer.name() + "_" + voucher.generateFileName();
                 Path voucherFile = voucherDir.resolve(fileName);
-                voucher.toFile(voucherFile);
+                voucher.saveToFile(voucherDir);
                 voucherFileNames.add(fileName);
             }
 

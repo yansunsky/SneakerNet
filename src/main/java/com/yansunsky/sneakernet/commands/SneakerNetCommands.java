@@ -1,5 +1,6 @@
 package com.yansunsky.sneakernet.commands;
 
+import com.yansunsky.sneakernet.Config;
 import com.yansunsky.sneakernet.SneakerNet;
 import com.yansunsky.sneakernet.crypto.KeyManager;
 import com.yansunsky.sneakernet.crypto.VoucherCrypto;
@@ -92,13 +93,14 @@ public class SneakerNetCommands {
         }
 
         try {
-            // 重新生成密钥对
-            var newKeyPair = keyManager.generateKeyPair();
-            keyManager.saveKeyPair(newKeyPair,
-                    keyManager.getConfigDir().resolve("local_key.der"),
-                    keyManager.getConfigDir().resolve("local_pub.der"));
+            // 删除现有密钥文件并重新生成
+            java.nio.file.Path configDir = keyManager.getConfigDir();
+            java.nio.file.Files.deleteIfExists(configDir.resolve("local_key.der"));
+            java.nio.file.Files.deleteIfExists(configDir.resolve("local_pub.der"));
 
-            String keyId = KeyManager.computeKeyId(newKeyPair.getPublic());
+            keyManager.loadOrGenerate();
+
+            String keyId = KeyManager.computeKeyId(keyManager.getPublicKey());
             source.sendSuccess(() -> Component.translatable("sneakernet.keygen.success", keyId)
                     .withStyle(ChatFormatting.GREEN), true);
             LOGGER.info("[SneakerNet] 新密钥对已生成，KeyID: {}", keyId);
@@ -209,7 +211,7 @@ public class SneakerNetCommands {
             return 0;
         }
 
-        for (var server : servers.values()) {
+        for (var server : servers) {
             source.sendSuccess(() -> Component.literal(
                     "  " + server.name() + " (KeyID: " + server.keyId() +
                             ", Fingerprint: " + server.fingerprint() + ")"

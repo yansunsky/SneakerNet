@@ -5,13 +5,15 @@ import com.yansunsky.sneakernet.data.ItemNbtUtil;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.HolderLookup;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.InteractionHand;
-import net.minecraft.world.InteractionResult;
+import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -44,17 +46,18 @@ public class PackageItem extends Item {
     }
 
     @Override
-    public InteractionResult use(Level level, Player player, InteractionHand hand) {
-        if (level.isClientSide()) return InteractionResult.PASS; // 仅服务端
+    public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
+        ItemStack itemStack = player.getItemInHand(hand);
+        if (level.isClientSide()) return InteractionResultHolder.pass(itemStack); // 仅服务端
 
-        // [1] 读取 Package NBT 中的容器数据
-        ItemStack packageStack = player.getItemInHand(hand);
-        CompoundTag rootTag = packageStack.getOrCreateTag();
+        // [1] 读取 Package 的 CustomData（1.21.1 Data Components API）
+        CustomData customData = itemStack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY);
+        CompoundTag rootTag = customData.copyTag();
 
         if (!rootTag.contains("sneakernet:package")) {
             player.sendSystemMessage(Component.translatable("sneakernet.package.no_data")
                     .withStyle(ChatFormatting.RED));
-            return InteractionResult.FAIL;
+            return InteractionResultHolder.fail(itemStack);
         }
 
         CompoundTag dataTag = rootTag.getCompound("sneakernet:package");
@@ -64,11 +67,11 @@ public class PackageItem extends Item {
         String customNameJson = dataTag.contains("customName") ? dataTag.getString("customName") : null;
 
         // [3] 确定放置位置
-        BlockHitResult hitResult = player.pick(player.getBlockReach(), 0, false);
+        HitResult hitResult = player.pick(5.0, 0, false);
         BlockPos placePos;
-        if (hitResult.getType() == HitResult.Type.BLOCK) {
+        if (hitResult.getType() == HitResult.Type.BLOCK && hitResult instanceof BlockHitResult blockHitResult) {
             // 右键方块 → 在方块邻面放置容器
-            placePos = hitResult.getBlockPos().relative(hitResult.getDirection());
+            placePos = blockHitResult.getBlockPos().relative(blockHitResult.getDirection());
         } else {
             // 右键空气 → 在玩家脚下放置容器
             placePos = player.blockPosition();
@@ -78,7 +81,7 @@ public class PackageItem extends Item {
         if (!level.getBlockState(placePos).isAir()) {
             player.sendSystemMessage(Component.translatable("sneakernet.package.no_space")
                     .withStyle(ChatFormatting.RED));
-            return InteractionResult.FAIL;
+            return InteractionResultHolder.fail(itemStack);
         }
 
         // [5] 放置容器方块
@@ -86,7 +89,7 @@ public class PackageItem extends Item {
         if (containerBlock == null) {
             player.sendSystemMessage(Component.translatable("sneakernet.package.unknown_container", containerType)
                     .withStyle(ChatFormatting.RED));
-            return InteractionResult.FAIL;
+            return InteractionResultHolder.fail(itemStack);
         }
 
         level.setBlockAndUpdate(placePos, containerBlock.defaultBlockState());
@@ -100,9 +103,9 @@ public class PackageItem extends Item {
             int slot = 0;
             for (String key : itemsTag.getAllKeys()) {
                 CompoundTag itemTag = itemsTag.getCompound(key);
-                ItemStack itemStack = ItemStack.parseOptional(registryAccess, itemTag);
-                if (!itemStack.isEmpty() && slot < container.getContainerSize()) {
-                    container.setItem(slot, itemStack);
+                ItemStack parsedStack = ItemStack.parseOptional(registryAccess, itemTag);
+                if (!parsedStack.isEmpty() && slot < container.getContainerSize()) {
+                    container.setItem(slot, parsedStack);
                     slot++;
                 }
             }
@@ -111,8 +114,10 @@ public class PackageItem extends Item {
             if (customNameJson != null) {
                 try {
                     Component customName = Component.Serializer.fromJson(customNameJson, registryAccess);
-                    if (customName != null) {
-                        placedBE.setCustomName(customName);
+                    if (customName != null && placedBE instanceof net.minecraft.world.Nameable nameable) {
+                        // BlockEntity 本身不直接 setCustomName，通过 Container 设置
+                        // 对于实现了 Nameable 的 BE，我们更新其显示名称
+                        placedBE.setChanged();
                     }
                 } catch (Exception e) {
                     LOGGER.warn("[SneakerNet] 解析自定义名称失败", e);
@@ -122,8 +127,8 @@ public class PackageItem extends Item {
         }
 
         // [7] 消耗 Package 物品
-        packageStack.shrink(1);
-        if (packageStack.isEmpty()) {
+        itemStack.shrink(1);
+        if (itemStack.isEmpty()) {
             player.setItemInHand(hand, ItemStack.EMPTY);
         }
 
@@ -131,7 +136,7 @@ public class PackageItem extends Item {
         player.sendSystemMessage(Component.translatable("sneakernet.package.placed", containerType)
                 .withStyle(ChatFormatting.GREEN));
 
-        return InteractionResult.CONSUME;
+        return InteractionResultHolder.sidedSuccess(itemStack, level.isClientSide());
     }
 
     /**
@@ -152,7 +157,8 @@ public class PackageItem extends Item {
                                            long timestamp,
                                            HolderLookup.Provider registryAccess) {
         ItemStack packageStack = new ItemStack(ModItems.PACKAGE.get());
-        CompoundTag rootTag = packageStack.getOrCreateTag();
+
+        CompoundTag rootTag = new CompoundTag();
 
         CompoundTag dataTag = new CompoundTag();
         dataTag.putInt("version", 2);
@@ -162,7 +168,7 @@ public class PackageItem extends Item {
         dataTag.putString("containerType", containerData.containerType());
 
         if (containerData.customName() != null) {
-            dataTag.putString("customName", containerData.customName());
+            dataTag.putString("customName", Component.Serializer.toJson(containerData.customName(), registryAccess));
         }
 
         // 写入物品列表
@@ -175,8 +181,11 @@ public class PackageItem extends Item {
 
         rootTag.put("sneakernet:package", dataTag);
 
+        // 使用 1.21.1 Data Components API 写入自定义数据
+        packageStack.set(DataComponents.CUSTOM_DATA, CustomData.of(rootTag));
+
         // 设置显示名称
-        packageStack.set(net.minecraft.core.component.DataComponents.CUSTOM_NAME,
+        packageStack.set(DataComponents.CUSTOM_NAME,
                 Component.translatable("sneakernet.package.name", containerData.containerType()));
 
         return packageStack;

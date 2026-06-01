@@ -1,9 +1,6 @@
 package com.yansunsky.sneakernet.items;
 
 import com.yansunsky.sneakernet.SneakerNet;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.resources.ResourceKey;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.Rarity;
 import net.neoforged.bus.api.IEventBus;
@@ -28,10 +25,9 @@ public class ModItems {
     // 可合成：8纸+1墨囊→8个，右键容器导出
     public static final DeferredItem<TicketItem> TICKET = ITEMS.register(
             "sneakernet_ticket",
-            id -> new TicketItem(new Item.Properties()
+            () -> new TicketItem(new Item.Properties()
                     .stacksTo(64)
                     .rarity(Rarity.UNCOMMON)
-                    .setId(ResourceKey.create(Registries.ITEM, id))
             )
     );
 
@@ -39,10 +35,9 @@ public class ModItems {
     // 不可合成，/sneakernet import 后获得，右键放置容器
     public static final DeferredItem<PackageItem> PACKAGE = ITEMS.register(
             "sneakernet_package",
-            id -> new PackageItem(new Item.Properties()
+            () -> new PackageItem(new Item.Properties()
                     .stacksTo(1)
                     .rarity(Rarity.RARE)
-                    .setId(ResourceKey.create(Registries.ITEM, id))
             )
     );
 

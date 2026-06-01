@@ -5,8 +5,10 @@ import com.yansunsky.sneakernet.data.VoucherBlacklist;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.KeyAgreement;
+import javax.crypto.SecretKey;
 import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
@@ -81,7 +83,7 @@ public final class VoucherCrypto {
 
         // [3] HKDF 密钥派生
         byte[] salt = ephemeralKeyPair.getPublic().getEncoded(); // 临时公钥作为 salt
-        SecretKeySpec aesKey = HkdfUtil.deriveKey(salt, sharedSecret, HKDF_INFO, 32);
+        SecretKey aesKey = HkdfUtil.deriveKey(salt, sharedSecret, HKDF_INFO, 32);
 
         // [4] AES-256-GCM 加密
         byte[] iv = new byte[GCM_IV_LENGTH];
@@ -204,13 +206,13 @@ public final class VoucherCrypto {
 
             // [4] HKDF 密钥派生（参数与加密时完全相同）
             byte[] salt = ephemeralPubKey.getEncoded();
-            SecretKeySpec aesKey = HkdfUtil.deriveKey(salt, sharedSecret, HKDF_INFO, 32);
+            SecretKey aesKey = HkdfUtil.deriveKey(salt, sharedSecret, HKDF_INFO, 32);
 
             // [5] AES-256-GCM 解密
             byte[] plaintextNbt;
             try {
                 plaintextNbt = aesGcmDecrypt(aesKey, iv, encryptedData);
-            } catch (AEADBadTagException e) {
+            } catch (BadPaddingException e) {
                 return DecryptResult.fail("解密失败（密钥错误或数据损坏）");
             }
 
@@ -296,7 +298,7 @@ public final class VoucherCrypto {
     /**
      * AES-256-GCM 加密
      */
-    static byte[] aesGcmEncrypt(SecretKeySpec key, byte[] iv, byte[] plaintext) throws GeneralSecurityException {
+    static byte[] aesGcmEncrypt(SecretKey key, byte[] iv, byte[] plaintext) throws GeneralSecurityException {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.ENCRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
         return cipher.doFinal(plaintext);
@@ -305,7 +307,7 @@ public final class VoucherCrypto {
     /**
      * AES-256-GCM 解密
      */
-    static byte[] aesGcmDecrypt(SecretKeySpec key, byte[] iv, byte[] ciphertext) throws GeneralSecurityException {
+    static byte[] aesGcmDecrypt(SecretKey key, byte[] iv, byte[] ciphertext) throws GeneralSecurityException {
         Cipher cipher = Cipher.getInstance("AES/GCM/NoPadding");
         cipher.init(Cipher.DECRYPT_MODE, key, new GCMParameterSpec(GCM_TAG_LENGTH, iv));
         return cipher.doFinal(ciphertext);

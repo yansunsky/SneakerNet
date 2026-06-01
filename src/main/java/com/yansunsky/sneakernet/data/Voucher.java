@@ -1,6 +1,8 @@
 package com.yansunsky.sneakernet.data;
 
 import com.google.gson.*;
+import com.google.gson.stream.JsonReader;
+import com.google.gson.stream.JsonWriter;
 import com.yansunsky.sneakernet.SneakerNet;
 
 import java.io.*;

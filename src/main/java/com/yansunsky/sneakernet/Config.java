@@ -1,7 +1,7 @@
 package com.yansunsky.sneakernet;
 
 import net.neoforged.fml.ModContainer;
-import net.neoforged.fml.config.ModConfigType;
+import net.neoforged.fml.config.ModConfig;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
 /**
@@ -57,6 +57,6 @@ public class Config {
      * @param modContainer 模组容器（由主类构造函数提供）
      */
     public static void register(ModContainer modContainer) {
-        modContainer.registerConfig(ModConfigType.SERVER, SPEC, SneakerNet.MOD_ID + "-server.toml");
+        modContainer.registerConfig(ModConfig.Type.SERVER, SPEC, SneakerNet.MOD_ID + "-server.toml");
     }
 }
