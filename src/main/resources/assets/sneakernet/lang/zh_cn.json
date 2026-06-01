@@ -1,0 +1,29 @@
+{
+  "item.sneakernet.sneakernet_ticket": "SneakerNet 凭证票",
+  "item.sneakernet.sneakernet_package": "SneakerNet 包裹",
+
+  "sneakernet.ticket.not_container": "你需要对准一个容器（箱子、潜影盒、木桶）才能导出物品！",
+  "sneakernet.ticket.no_trusted_servers": "未配置可信服务器。请先使用 /sneakernet trust 添加服务器。",
+  "sneakernet.ticket.export_success": "凭证导出成功：%s",
+  "sneakernet.ticket.export_failed": "导出失败：%s",
+
+  "sneakernet.package.no_data": "此包裹没有物品数据！",
+  "sneakernet.package.no_space": "此处没有空间放置容器！",
+  "sneakernet.package.unknown_container": "未知容器类型：%s",
+  "sneakernet.package.placed": "容器放置成功：%s",
+  "sneakernet.package.name": "SneakerNet 包裹（%s）",
+
+  "sneakernet.keygen.success": "新的 ECC 密钥对已生成。密钥 ID：%s",
+  "sneakernet.showpub.success": "公钥已导出至：%s",
+  "sneakernet.showpub.fingerprint": "指纹：%s",
+  "sneakernet.trust.file_not_found": "未找到公钥文件：%s",
+  "sneakernet.trust.success": "已添加可信服务器：%s",
+  "sneakernet.untrust.success": "已移除可信服务器：%s",
+  "sneakernet.untrust.not_found": "服务器不在可信列表中：%s",
+  "sneakernet.list.empty": "未配置可信服务器。",
+  "sneakernet.import.no_vouchers": "sneakernet/vouchers/ 目录中未找到凭证文件。",
+  "sneakernet.import.file_not_found": "未找到凭证文件：%s",
+  "sneakernet.import.result": "导入完成：%d 成功，%d 失败",
+
+  "sneakernet.message.inventory_full": "背包已满，物品已掉落在地上"
+}

@@ -1,0 +1,29 @@
+{
+  "item.sneakernet.sneakernet_ticket": "SneakerNet Ticket",
+  "item.sneakernet.sneakernet_package": "SneakerNet Package",
+
+  "sneakernet.ticket.not_container": "You must look at a container (chest, shulker box, barrel) to export items!",
+  "sneakernet.ticket.no_trusted_servers": "No trusted servers configured. Use /sneakernet trust to add servers first.",
+  "sneakernet.ticket.export_success": "Voucher exported successfully: %s",
+  "sneakernet.ticket.export_failed": "Export failed: %s",
+
+  "sneakernet.package.no_data": "This package has no item data!",
+  "sneakernet.package.no_space": "No space to place container here!",
+  "sneakernet.package.unknown_container": "Unknown container type: %s",
+  "sneakernet.package.placed": "Container placed successfully: %s",
+  "sneakernet.package.name": "SneakerNet Package (%s)",
+
+  "sneakernet.keygen.success": "New ECC key pair generated. Key ID: %s",
+  "sneakernet.showpub.success": "Public key exported to: %s",
+  "sneakernet.showpub.fingerprint": "Fingerprint: %s",
+  "sneakernet.trust.file_not_found": "Public key file not found: %s",
+  "sneakernet.trust.success": "Trusted server added: %s",
+  "sneakernet.untrust.success": "Trusted server removed: %s",
+  "sneakernet.untrust.not_found": "Server not found in trusted list: %s",
+  "sneakernet.list.empty": "No trusted servers configured.",
+  "sneakernet.import.no_vouchers": "No voucher files found in sneakernet/vouchers/ directory.",
+  "sneakernet.import.file_not_found": "Voucher file not found: %s",
+  "sneakernet.import.result": "Import complete: %d succeeded, %d failed",
+
+  "sneakernet.message.inventory_full": "Inventory full, items dropped on the ground"
+}
