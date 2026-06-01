@@ -1,0 +1,104 @@
+Initialized native services in: C:\Users\Yansunsky\.gradle\native
+Initialized jansi services in: C:\Users\Yansunsky\.gradle\native
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.2.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Starting process 'Gradle build daemon'. Working directory: C:\Users\Yansunsky\.gradle\daemon\9.2.1 Command: D:\ProgrammingEnv\.jdks\MicrosoftOpenJDK-21.0.9\bin\java.exe --add-opens=java.base/java.lang=ALL-UNNAMED --add-opens=java.base/java.lang.invoke=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.prefs/java.util.prefs=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.api=ALL-UNNAMED --add-exports=jdk.compiler/com.sun.tools.javac.util=ALL-UNNAMED --add-opens=java.base/java.util=ALL-UNNAMED --add-opens=java.prefs/java.util.prefs=ALL-UNNAMED --add-opens=java.base/java.nio.charset=ALL-UNNAMED --add-opens=java.base/java.net=ALL-UNNAMED --add-opens=java.base/java.util.concurrent=ALL-UNNAMED --add-opens=java.base/java.util.concurrent.atomic=ALL-UNNAMED --add-opens=java.xml/javax.xml.namespace=ALL-UNNAMED --add-opens=java.base/java.time=ALL-UNNAMED -XX:MaxMetaspaceSize=1g -XX:+HeapDumpOnOutOfMemoryError -Xmx4g -Dfile.encoding=UTF-8 -Duser.country=CN -Duser.language=zh -Duser.variant -cp C:\Users\Yansunsky\.gradle\wrapper\dists\gradle-9.2.1-bin\2t0n5ozlw9xmuyvbp7dnzaxug\gradle-9.2.1\lib\gradle-daemon-main-9.2.1.jar -javaagent:C:\Users\Yansunsky\.gradle\wrapper\dists\gradle-9.2.1-bin\2t0n5ozlw9xmuyvbp7dnzaxug\gradle-9.2.1\lib\agents\gradle-instrumentation-agent-9.2.1.jar org.gradle.launcher.daemon.bootstrap.GradleDaemon 9.2.1
+Successfully started process 'Gradle build daemon'
+An attempt to start the daemon took 1.297 secs.
+The client will now receive all logging from the daemon (pid: 19836). The daemon log file: C:\Users\Yansunsky\.gradle\daemon\9.2.1\daemon-19836.out.log
+Daemon will be stopped at the end of the build 
+Using 20 worker leases.
+Operational build model parameters: {requiresToolingModels=false, parallelProjectExecution=true, configureOnDemand=true, configurationCache=true, configurationCacheParallelStore=false, configurationCacheParallelLoad=true, isolatedProjects=false, parallelProjectConfiguration=false, intermediateModelCache=false, parallelToolingApiActions=true, invalidateCoupledProjects=false, modelAsProjectDependency=false, resilientModelBuilding=false}
+Configuration on demand is an incubating feature.
+Received JVM installation metadata from 'D:\ProgrammingEnv\.jdks\MicrosoftOpenJDK-21.0.9': {JAVA_HOME=D:\ProgrammingEnv\.jdks\MicrosoftOpenJDK-21.0.9, JAVA_VERSION=21.0.9, JAVA_VENDOR=Microsoft, RUNTIME_NAME=OpenJDK Runtime Environment, RUNTIME_VERSION=21.0.9+10-LTS, VM_NAME=OpenJDK 64-Bit Server VM, VM_VERSION=21.0.9+10-LTS, VM_VENDOR=Microsoft, OS_ARCH=amd64}
+Encryption key source: default Gradle keystore (pkcs12)
+Reusing configuration cache.
+Watching the file system is configured to be enabled
+Now considering [D:\Yansunsky\Desktop\project\MC_Forge\WorkBuddy工作目录\SneakerNet] as hierarchies to watch
+File system watching is active
+Using local directory build cache for the root build (location = C:\Users\Yansunsky\.gradle\caches\build-cache-1, remove unused entries = after 7 days).
+Tasks to be executed: [task ':createMinecraftArtifacts', task ':compileJava', task ':generateModMetadata', task ':processResources', task ':classes', task ':jarJar', task ':jar', task ':assemble', task ':compileTestJava', task ':processTestResources', task ':testClasses', task ':test', task ':check', task ':build']
+Tasks that were excluded: []
+Resolve mutations for :createMinecraftArtifacts (Thread[#76,Execution worker Thread 2,5,main]) started.
+Resolve mutations for :generateModMetadata (Thread[#93,Execution worker Thread 19,5,main]) started.
+Resolve mutations for :jarJar (Thread[#74,included builds,5,main]) started.
+Resolve mutations for :processTestResources (Thread[#92,Execution worker Thread 18,5,main]) started.
+:generateModMetadata (Thread[#91,Execution worker Thread 17,5,main]) started.
+:processTestResources (Thread[#92,Execution worker Thread 18,5,main]) started.
+:jarJar (Thread[#93,Execution worker Thread 19,5,main]) started.
+:createMinecraftArtifacts (Thread[#76,Execution worker Thread 2,5,main]) started.
+
+> Task :jarJar NO-SOURCE
+Skipping task ':jarJar' as it has no source files and no previous output files.
+
+> Task :processTestResources NO-SOURCE
+Skipping task ':processTestResources' as it has no source files and no previous output files.
+
+> Task :generateModMetadata UP-TO-DATE
+Caching disabled for task ':generateModMetadata' because:
+  Not worth caching
+Skipping task ':generateModMetadata' as it is up-to-date.
+
+> Task :createMinecraftArtifacts UP-TO-DATE
+Caching disabled for task ':createMinecraftArtifacts' because:
+  Implements its own caching
+Skipping task ':createMinecraftArtifacts' as it is up-to-date.
+Resolve mutations for :processResources (Thread[#91,Execution worker Thread 17,5,main]) started.
+Resolve mutations for :compileJava (Thread[#76,Execution worker Thread 2,5,main]) started.
+:processResources (Thread[#91,Execution worker Thread 17,5,main]) started.
+:compileJava (Thread[#76,Execution worker Thread 2,5,main]) started.
+
+> Task :processResources UP-TO-DATE
+Caching disabled for task ':processResources' because:
+  Not worth caching
+Skipping task ':processResources' as it is up-to-date.
+
+> Task :compileJava UP-TO-DATE
+Build cache key for task ':compileJava' is 3806b5d36b296907bc40d13e53b03498
+Skipping task ':compileJava' as it is up-to-date.
+Resolve mutations for :classes (Thread[#76,Execution worker Thread 2,5,main]) started.
+:classes (Thread[#76,Execution worker Thread 2,5,main]) started.
+
+> Task :classes UP-TO-DATE
+Skipping task ':classes' as it has no actions.
+Resolve mutations for :jar (Thread[#76,Execution worker Thread 2,5,main]) started.
+Resolve mutations for :compileTestJava (Thread[#79,Execution worker Thread 5,5,main]) started.
+:jar (Thread[#76,Execution worker Thread 2,5,main]) started.
+:compileTestJava (Thread[#79,Execution worker Thread 5,5,main]) started.
+
+> Task :compileTestJava NO-SOURCE
+Skipping task ':compileTestJava' as it has no source files and no previous output files.
+Resolve mutations for :testClasses (Thread[#79,Execution worker Thread 5,5,main]) started.
+:testClasses (Thread[#79,Execution worker Thread 5,5,main]) started.
+
+> Task :testClasses UP-TO-DATE
+Skipping task ':testClasses' as it has no actions.
+Resolve mutations for :test (Thread[#79,Execution worker Thread 5,5,main]) started.
+:test (Thread[#79,Execution worker Thread 5,5,main]) started.
+
+> Task :jar UP-TO-DATE
+Caching disabled for task ':jar' because:
+  Not worth caching
+Skipping task ':jar' as it is up-to-date.
+Resolve mutations for :assemble (Thread[#76,Execution worker Thread 2,5,main]) started.
+:assemble (Thread[#76,Execution worker Thread 2,5,main]) started.
+
+> Task :assemble UP-TO-DATE
+Skipping task ':assemble' as it has no actions.
+
+> Task :test NO-SOURCE
+Skipping task ':test' as it has no source files and no previous output files.
+Resolve mutations for :check (Thread[#79,Execution worker Thread 5,5,main]) started.
+:check (Thread[#79,Execution worker Thread 5,5,main]) started.
+
+> Task :check UP-TO-DATE
+Skipping task ':check' as it has no actions.
+Resolve mutations for :build (Thread[#79,Execution worker Thread 5,5,main]) started.
+:build (Thread[#79,Execution worker Thread 5,5,main]) started.
+
+> Task :build UP-TO-DATE
+Skipping task ':build' as it has no actions.
+
+BUILD SUCCESSFUL in 5s
+5 actionable tasks: 5 up-to-date
+Watched directory hierarchies: [D:\Yansunsky\Desktop\project\MC_Forge\WorkBuddy工作目录\SneakerNet]
+Configuration cache entry reused.
