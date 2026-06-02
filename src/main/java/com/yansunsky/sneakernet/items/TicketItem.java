@@ -99,8 +99,12 @@ public class TicketItem extends Item {
                             new VoucherSyncPayload(entry.getValue(), entry.getKey())
                     );
                 }
-                // [b] 切回主线程通知玩家
+                // [b] 切回主线程：清空容器 + 通知玩家
                 server.execute(() -> {
+                    // 清空容器物品（防止物品复制）
+                    container.clearContent();
+                    blockEntity.setChanged();
+
                     for (String fileName : result.voucherFiles().keySet()) {
                         player.sendSystemMessage(Component.translatable(
                                 "sneakernet.ticket.export_success", fileName
