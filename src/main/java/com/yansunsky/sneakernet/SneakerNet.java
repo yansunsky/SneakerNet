@@ -12,12 +12,17 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.fml.loading.FMLPaths;
+import com.yansunsky.sneakernet.net.VoucherSyncPayload;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import net.neoforged.neoforge.network.handling.IPayloadContext;
+import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import org.slf4j.Logger;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -58,6 +63,9 @@ public class SneakerNet {
 
         // 注册 mod 生命周期事件
         modEventBus.addListener(this::onCommonSetup);
+
+        // 注册网络包处理器
+        modEventBus.addListener(this::onRegisterPayloads);
 
         // 注册 NeoForge 事件（命令、服务器生命周期）
         NeoForge.EVENT_BUS.register(this);
@@ -139,6 +147,46 @@ public class SneakerNet {
     @SubscribeEvent
     public void onRegisterCommands(RegisterCommandsEvent event) {
         SneakerNetCommands.register(event.getDispatcher());
+    }
+
+    /**
+     * 注册网络载荷（CustomPacketPayload）处理器
+     * <p>
+     * 在 Mod 事件总线上监听 RegisterPayloadHandlersEvent，
+     * 注册服务端→客户端的 Voucher 同步数据包。
+     * </p>
+     */
+    private void onRegisterPayloads(RegisterPayloadHandlersEvent event) {
+        PayloadRegistrar registrar = event.registrar(MOD_ID);
+        registrar.playToClient(
+                VoucherSyncPayload.TYPE,
+                VoucherSyncPayload.STREAM_CODEC,
+                ClientPayloadHandler::handleVoucherSync
+        );
+        LOGGER.info("[SneakerNet] 网络载荷处理器已注册");
+    }
+
+    /**
+     * 客户端网络包处理器
+     */
+    private static class ClientPayloadHandler {
+        /**
+         * 处理 VoucherSyncPayload：将收到的 JSON 保存到客户端本地目录
+         */
+        public static void handleVoucherSync(VoucherSyncPayload payload, IPayloadContext context) {
+            context.enqueueWork(() -> {
+                try {
+                    Path vouchersDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/");
+                    Files.createDirectories(vouchersDir);
+                    Path targetFile = vouchersDir.resolve(payload.suggestedFileName());
+                    Files.writeString(targetFile, payload.voucherJson());
+                    LOGGER.info("[SneakerNet] 客户端已保存凭证：{} ({})",
+                            payload.suggestedFileName(), targetFile);
+                } catch (IOException e) {
+                    LOGGER.error("[SneakerNet] 客户端保存凭证失败：{}", e.getMessage());
+                }
+            });
+        }
     }
 
     // ─── 全局访问器 ───

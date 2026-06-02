@@ -7,11 +7,13 @@ import com.yansunsky.sneakernet.crypto.VoucherCrypto;
 import com.yansunsky.sneakernet.data.ItemNbtUtil;
 import com.yansunsky.sneakernet.data.Voucher;
 import com.yansunsky.sneakernet.executor.CryptoExecutor;
+import com.yansunsky.sneakernet.net.VoucherSyncPayload;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.minecraft.world.Container;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
@@ -30,7 +32,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.PublicKey;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -87,22 +91,29 @@ public class TicketItem extends Item {
         SneakerNet.getCryptoExecutor().supplyAsync(() -> {
             return doExport(container, keyManager, playerUuid, level.registryAccess());
         }).thenAccept(result -> {
-            // 切回主线程通知玩家
-            server.execute(() -> {
-                if (result.success) {
-                    for (String fileName : result.voucherFileNames()) {
+            if (result.success) {
+                // [a] 发送网络包到客户端（任何线程均可发送）
+                for (Map.Entry<String, String> entry : result.voucherFiles().entrySet()) {
+                    PacketDistributor.sendToPlayer(
+                            (ServerPlayer) player,
+                            new VoucherSyncPayload(entry.getValue(), entry.getKey())
+                    );
+                }
+                // [b] 切回主线程通知玩家
+                server.execute(() -> {
+                    for (String fileName : result.voucherFiles().keySet()) {
                         player.sendSystemMessage(Component.translatable(
                                 "sneakernet.ticket.export_success", fileName
                         ).withStyle(ChatFormatting.GREEN));
                     }
-                } else {
-                    // 导出失败，退还 Ticket
-                    player.getInventory().add(new ItemStack(ModItems.TICKET.get(), 1));
-                    player.sendSystemMessage(Component.translatable(
-                            "sneakernet.ticket.export_failed", result.failureReason()
-                    ).withStyle(ChatFormatting.RED));
-                }
-            });
+                });
+            } else {
+                // 导出失败，退还 Ticket
+                player.getInventory().add(new ItemStack(ModItems.TICKET.get(), 1));
+                player.sendSystemMessage(Component.translatable(
+                        "sneakernet.ticket.export_failed", result.failureReason()
+                ).withStyle(ChatFormatting.RED));
+            }
         });
 
         return InteractionResultHolder.sidedSuccess(itemStack, level.isClientSide());
@@ -110,6 +121,10 @@ public class TicketItem extends Item {
 
     /**
      * 导出逻辑（在线程池中执行，不阻塞主线程）
+     * <p>
+     * 为每个可信服务器生成一份加密凭据，保存到服务端本地目录，
+     * 同时返回文件名→JSON内容的映射，用于发送给玩家客户端。
+     * </p>
      */
     private static ExportResult doExport(Container container, KeyManager keyManager,
                                          UUID playerUuid, net.minecraft.core.RegistryAccess registryAccess) {
@@ -120,7 +135,7 @@ public class TicketItem extends Item {
             );
 
             // [b] 对每个可信服务器各生成一份凭据
-            List<String> voucherFileNames = new ArrayList<>();
+            Map<String, String> voucherFiles = new HashMap<>();
             int ttlSeconds = Config.VOUCHER_TTL_HOURS.get() * 3600;
 
             for (KeyManager.TrustedServer trustedServer : keyManager.getTrustedServers()) {
@@ -135,18 +150,21 @@ public class TicketItem extends Item {
                         ttlSeconds
                 );
 
-                // [d] 保存到客户端目录
+                // [d] 保存到服务端目录（使用固定文件名，带信任服务器名前缀）
                 Path voucherDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/");
                 Files.createDirectories(voucherDir);
 
                 String fileName = trustedServer.name() + "_" + voucher.generateFileName();
                 Path voucherFile = voucherDir.resolve(fileName);
-                voucher.saveToFile(voucherDir);
-                voucherFileNames.add(fileName);
+                // 直接写入完整路径，避免 saveToFile() 内部重新生成随机文件名
+                Files.writeString(voucherFile, voucher.toJson());
+
+                // 同时保存文件名→JSON 映射，用于后续发送到客户端
+                voucherFiles.put(fileName, voucher.toJson());
             }
 
-            LOGGER.info("[SneakerNet] 导出成功：{} 个凭据", voucherFileNames.size());
-            return ExportResult.success(voucherFileNames);
+            LOGGER.info("[SneakerNet] 导出成功：{} 个凭据", voucherFiles.size());
+            return ExportResult.success(voucherFiles);
 
         } catch (Exception e) {
             LOGGER.error("[SneakerNet] 导出失败", e);
@@ -158,11 +176,11 @@ public class TicketItem extends Item {
 
     record ExportResult(
             boolean success,
-            List<String> voucherFileNames,
+            Map<String, String> voucherFiles, // filename → JSON content
             String failureReason
     ) {
-        static ExportResult success(List<String> fileNames) {
-            return new ExportResult(true, fileNames, null);
+        static ExportResult success(Map<String, String> files) {
+            return new ExportResult(true, files, null);
         }
 
         static ExportResult fail(String reason) {

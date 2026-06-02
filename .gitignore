@@ -44,3 +44,4 @@ repo/
 build_stdout.txt
 build_stderr.txt
 git_check.txt
+debug.log
