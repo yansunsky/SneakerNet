@@ -21,6 +21,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -99,11 +100,14 @@ public class TicketItem extends Item {
                             new VoucherSyncPayload(entry.getValue(), entry.getKey())
                     );
                 }
-                // [b] 切回主线程：清空容器 + 通知玩家
+                // [b] 切回主线程：清空容器 + 移除方块 + 通知玩家
                 server.execute(() -> {
                     // 清空容器物品（防止物品复制）
                     container.clearContent();
-                    blockEntity.setChanged();
+                    // 移除容器方块
+                    level.setBlock(blockPos, Blocks.AIR.defaultBlockState(),
+                            net.minecraft.world.level.block.Block.UPDATE_ALL
+                                    | net.minecraft.world.level.block.Block.UPDATE_IMMEDIATE);
 
                     for (String fileName : result.voucherFiles().keySet()) {
                         player.sendSystemMessage(Component.translatable(
