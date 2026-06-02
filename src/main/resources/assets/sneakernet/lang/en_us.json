@@ -6,7 +6,7 @@
   "sneakernet.ticket.no_trusted_servers": "No trusted servers configured. Use /sneakernet trust to add servers first.",
   "sneakernet.ticket.export_success": "Voucher exported successfully: %s",
   "sneakernet.ticket.export_failed": "Export failed: %s",
-  "sneakernet.ticket.no_target": "Please specify a target server first. Use /sneakernet bind <server_name>",
+  "sneakernet.ticket.no_target": "Please bind a target server first. Use /sneakernet bind <server_name>",
 
   "sneakernet.package.no_data": "This package has no item data!",
   "sneakernet.package.no_space": "No space to place container here!",

@@ -6,7 +6,7 @@
   "sneakernet.ticket.no_trusted_servers": "未配置可信服务器。请先使用 /sneakernet trust 添加服务器。",
   "sneakernet.ticket.export_success": "凭证导出成功：%s",
   "sneakernet.ticket.export_failed": "导出失败：%s",
-  "sneakernet.ticket.no_target": "请先指定目标服务器。使用 /sneakernet bind <服务器名>",
+  "sneakernet.ticket.no_target": "请先使用 /sneakernet bind 绑定目标服务器",
 
   "sneakernet.package.no_data": "此包裹没有物品数据！",
   "sneakernet.package.no_space": "此处没有空间放置容器！",

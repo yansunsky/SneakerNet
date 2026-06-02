@@ -101,6 +101,7 @@ public class SneakerNet {
             LOGGER.info("[SneakerNet] 黑名单数据库初始化成功");
         } catch (Exception e) {
             LOGGER.error("[SneakerNet] 黑名单数据库初始化失败！", e);
+            blacklist = null; // 置 null 防止后续误用无效对象
         }
 
         // [4] 确保客户端目录存在
