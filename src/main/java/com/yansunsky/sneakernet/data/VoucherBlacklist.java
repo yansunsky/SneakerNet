@@ -1,102 +1,91 @@
 package com.yansunsky.sneakernet.data;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.reflect.TypeToken;
 import com.yansunsky.sneakernet.SneakerNet;
 
+import java.io.IOException;
+import java.lang.reflect.Type;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.sql.*;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.UUID;
 
 /**
- * SQLite 黑名单管理器（v2 — 基于 config/sneakernet/blacklist.db）
+ * 黑名单管理器（v3 — JSON 文件存储）
  * <p>
- * 从旧版 world 目录改为 config/sneakernet/blacklist.db，
- * 表结构升级为支持 issuer_id 和 ttl_seconds 字段。
- * </p>
- *
+ * 从 SQLite 改为纯 JSON 文件，避免 NeoForge 类加载器与 JDBC SPI 不兼容的问题。
+ * 数据存储在 config/sneakernet/blacklist.json 中，格式为：
  * <pre>
- * 表结构:
- *   blacklist(
- *     voucher_id   TEXT PRIMARY KEY,  -- 凭证唯一 ID (SHA-256 hash)
- *     issuer_id    TEXT,               -- 签发者 KeyID
- *     player_uuid  TEXT,               -- 玩家 UUID
- *     used_at      INTEGER,            -- 核销时间 (Unix 秒)
- *     ttl_seconds  INTEGER             -- 凭证有效期 (秒)
- *   )
+ * {
+ *   "entries": {
+ *     "&lt;voucherId&gt;": { "redeemedAt": &lt;unix秒&gt;, "ttl": &lt;秒&gt;, "issuerId": "...", "playerUuid": "..." },
+ *     ...
+ *   }
+ * }
  * </pre>
  */
 public class VoucherBlacklist {
 
-    /** 数据库文件路径 */
-    private final Path dbPath;
+    /** 黑名单文件路径 */
+    private final Path filePath;
 
-    /** SQLite 连接 */
-    private Connection connection;
+    /** 内存中的黑名单数据 */
+    private Map<String, BlacklistEntry> entries = new HashMap<>();
 
-    /**
-     * 构造黑名单管理器
-     *
-     * @param configDir 配置目录（config/sneakernet/），数据库文件为 configDir/blacklist.db
-     */
+    /** Gson 实例 */
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
+    /** JSON 序列化类型 */
+    private static final Type MAP_TYPE = new TypeToken<Map<String, BlacklistEntry>>() {}.getType();
+
     public VoucherBlacklist(Path configDir) {
-        this.dbPath = configDir.resolve("blacklist.db");
+        this.filePath = configDir.resolve("blacklist.json");
     }
 
     /**
-     * 初始化数据库：创建表、索引，启用 WAL 模式
-     *
-     * @throws SQLException 如果数据库初始化失败
+     * 黑名单条目
      */
-    public synchronized void initialize() throws SQLException {
+    private record BlacklistEntry(
+            long redeemedAt,
+            int ttl,
+            String issuerId,
+            String playerUuid
+    ) {
+        boolean isExpired() {
+            return (System.currentTimeMillis() / 1000) - redeemedAt > ttl;
+        }
+    }
+
+    /**
+     * 初始化：确保目录存在，加载已有数据
+     */
+    public synchronized void initialize() throws IOException {
         // 确保目录存在
-        try {
-            Files.createDirectories(dbPath.getParent());
-        } catch (java.io.IOException e) {
-            throw new SQLException("无法创建数据库目录: " + dbPath.getParent(), e);
+        Files.createDirectories(filePath.getParent());
+        SneakerNet.LOGGER.info("[SneakerNet] 黑名单文件: {}", filePath);
+
+        // 加载已有数据
+        if (Files.exists(filePath)) {
+            String json = Files.readString(filePath);
+            Map<String, BlacklistEntry> loaded = GSON.fromJson(json, MAP_TYPE);
+            if (loaded != null) {
+                entries = loaded;
+                SneakerNet.LOGGER.info("[SneakerNet] 黑名单已加载: {} 条记录", entries.size());
+            }
+        } else {
+            SneakerNet.LOGGER.info("[SneakerNet] 黑名单文件不存在，将自动创建");
+            save();
         }
+    }
 
-        // JDBC 4.0+ 自动通过 SPI 加载驱动，无需 Class.forName
-        String jdbcUrl = "jdbc:sqlite:" + dbPath;
-        this.connection = DriverManager.getConnection(jdbcUrl);
-
-        try (Statement stmt = connection.createStatement()) {
-            // 启用 WAL 模式（写前日志，提高并发性能）
-            stmt.execute("PRAGMA journal_mode=WAL");
-
-            // 启用外键约束
-            stmt.execute("PRAGMA foreign_keys=ON");
-
-            // 创建黑名单表
-            stmt.execute("""
-                CREATE TABLE IF NOT EXISTS blacklist (
-                    voucher_id   TEXT PRIMARY KEY,
-                    issuer_id    TEXT,
-                    player_uuid  TEXT,
-                    used_at      INTEGER NOT NULL,
-                    ttl_seconds  INTEGER NOT NULL DEFAULT 86400
-                )
-                """);
-
-            // 创建索引：按玩家查询
-            stmt.execute("""
-                CREATE INDEX IF NOT EXISTS idx_blacklist_player
-                ON blacklist(player_uuid)
-                """);
-
-            // 创建索引：按签发者查询
-            stmt.execute("""
-                CREATE INDEX IF NOT EXISTS idx_blacklist_issuer
-                ON blacklist(issuer_id)
-                """);
-
-            // 创建索引：按时间查询（用于清理过期记录）
-            stmt.execute("""
-                CREATE INDEX IF NOT EXISTS idx_blacklist_used_at
-                ON blacklist(used_at)
-                """);
-        }
-
-        SneakerNet.LOGGER.info("[SneakerNet] 黑名单数据库已初始化: {}", dbPath);
+    /**
+     * 保存黑名单到文件
+     */
+    private void save() throws IOException {
+        Files.writeString(filePath, GSON.toJson(Map.of("entries", entries)));
     }
 
     /**
@@ -104,96 +93,70 @@ public class VoucherBlacklist {
      *
      * @param voucherId 凭证唯一 ID
      * @return true = 已核销（拒绝），false = 未核销（放行）
-     * @throws SQLException 如果查询失败
      */
-    public synchronized boolean isRedeemed(String voucherId) throws SQLException {
-        ensureConnection();
-        try (PreparedStatement ps = connection.prepareStatement(
-                "SELECT 1 FROM blacklist WHERE voucher_id = ?")) {
-            ps.setString(1, voucherId);
-            try (ResultSet rs = ps.executeQuery()) {
-                return rs.next();
+    public synchronized boolean isRedeemed(String voucherId) {
+        BlacklistEntry entry = entries.get(voucherId);
+        if (entry == null) return false;
+        if (entry.isExpired()) {
+            // 过期记录自动清理
+            entries.remove(voucherId);
+            try { save(); } catch (IOException e) {
+                SneakerNet.LOGGER.warn("[SneakerNet] 保存黑名单失败", e);
             }
+            return false;
         }
+        return true;
     }
 
     /**
      * 将凭证标记为已核销
-     * <p>
-     * 调用此方法前必须确保凭证通过了签名验证。
-     * </p>
      *
-     * @param voucherId 凭证唯一 ID
-     * @param issuerId  签发者 KeyID
+     * @param voucherId  凭证唯一 ID
+     * @param issuerId   签发者 KeyID
      * @param playerUuid 玩家 UUID
-     * @param ttl       凭证有效期（秒）
-     * @throws SQLException 如果写入失败或凭证已存在
+     * @param ttl        凭证有效期（秒）
+     * @throws IOException 如果写入失败
      */
     public synchronized void redeem(String voucherId, String issuerId, UUID playerUuid, int ttl)
-            throws SQLException {
-        ensureConnection();
-        try (PreparedStatement ps = connection.prepareStatement(
-                "INSERT OR IGNORE INTO blacklist (voucher_id, issuer_id, player_uuid, used_at, ttl_seconds) "
-                        + "VALUES (?, ?, ?, ?, ?)")) {
-            ps.setString(1, voucherId);
-            ps.setString(2, issuerId);
-            ps.setString(3, playerUuid.toString());
-            ps.setLong(4, System.currentTimeMillis() / 1000);
-            ps.setInt(5, ttl);
-            int rows = ps.executeUpdate();
-            if (rows > 0) {
-                SneakerNet.LOGGER.info("[SneakerNet] 凭证已核销: {} (玩家: {}, 签发者: {})",
-                        voucherId, playerUuid, issuerId);
-            } else {
-                SneakerNet.LOGGER.warn("[SneakerNet] 凭证核销跳过（可能已存在）: {}", voucherId);
-            }
+            throws IOException {
+        if (entries.containsKey(voucherId)) {
+            SneakerNet.LOGGER.warn("[SneakerNet] 凭证核销跳过（可能已存在）: {}", voucherId);
+            return;
         }
+
+        entries.put(voucherId, new BlacklistEntry(
+                System.currentTimeMillis() / 1000,
+                ttl,
+                issuerId,
+                playerUuid.toString()
+        ));
+        save();
+
+        SneakerNet.LOGGER.info("[SneakerNet] 凭证已核销: {} (玩家: {}, 签发者: {})",
+                voucherId, playerUuid, issuerId);
     }
 
     /**
      * 清理过期的黑名单记录
-     * <p>
-     * 删除 used_at + ttl_seconds < 当前时间 的记录，
-     * 即已经超过有效期的核销记录可以安全删除（因为对应的凭证也已过期，无法再次使用）。
-     * </p>
-     *
-     * @throws SQLException 如果删除失败
      */
-    public synchronized void cleanExpired() throws SQLException {
-        ensureConnection();
-        long now = System.currentTimeMillis() / 1000;
-        try (PreparedStatement ps = connection.prepareStatement(
-                "DELETE FROM blacklist WHERE (used_at + ttl_seconds) < ?")) {
-            ps.setLong(1, now);
-            int deleted = ps.executeUpdate();
-            if (deleted > 0) {
-                SneakerNet.LOGGER.info("[SneakerNet] 清理了 {} 条过期黑名单记录", deleted);
+    public synchronized void cleanExpired() {
+        int before = entries.size();
+        entries.values().removeIf(BlacklistEntry::isExpired);
+        int removed = before - entries.size();
+        if (removed > 0) {
+            try {
+                save();
+                SneakerNet.LOGGER.info("[SneakerNet] 清理了 {} 条过期黑名单记录", removed);
+            } catch (IOException e) {
+                SneakerNet.LOGGER.warn("[SneakerNet] 保存黑名单失败", e);
             }
         }
     }
 
     /**
-     * 关闭数据库连接
+     * 关闭（JSON 文件模式无需关闭连接，仅记录日志）
      */
     public synchronized void close() {
-        if (connection != null) {
-            try {
-                if (!connection.isClosed()) {
-                    connection.close();
-                    SneakerNet.LOGGER.info("[SneakerNet] 黑名单数据库连接已关闭");
-                }
-            } catch (SQLException e) {
-                SneakerNet.LOGGER.error("[SneakerNet] 关闭黑名单数据库连接失败", e);
-            }
-        }
-    }
-
-    /**
-     * 确保连接有效
-     */
-    private void ensureConnection() throws SQLException {
-        if (connection == null || connection.isClosed()) {
-            throw new SQLException("黑名单数据库连接未初始化或已关闭");
-        }
+        SneakerNet.LOGGER.info("[SneakerNet] 黑名单已关闭，当前 {} 条记录", entries.size());
     }
 }

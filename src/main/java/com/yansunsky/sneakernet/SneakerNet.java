@@ -84,6 +84,8 @@ public class SneakerNet {
 
         // [2] 初始化密钥管理器
         Path configDir = FMLPaths.CONFIGDIR.get().resolve("sneakernet");
+        LOGGER.info("[SneakerNet] 配置目录: {}", configDir.toAbsolutePath());
+        LOGGER.info("[SneakerNet] FMLPaths.CONFIGDIR={}", FMLPaths.CONFIGDIR.get());
         keyManager = new KeyManager(configDir);
 
         try {
