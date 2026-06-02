@@ -18,12 +18,14 @@ import com.yansunsky.sneakernet.data.ItemNbtUtil;
 import com.yansunsky.sneakernet.data.Voucher;
 import com.yansunsky.sneakernet.items.PackageItem;
 import com.yansunsky.sneakernet.net.ImportVoucherPayload;
+import com.yansunsky.sneakernet.net.ImportResultPayload;
 import com.yansunsky.sneakernet.net.VoucherSyncPayload;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.minecraft.server.MinecraftServer;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
@@ -179,6 +181,11 @@ public class SneakerNet {
                 VoucherSyncPayload.STREAM_CODEC,
                 ClientPayloadHandler::handleVoucherSync
         );
+        registrar.playToClient(
+                ImportResultPayload.TYPE,
+                ImportResultPayload.STREAM_CODEC,
+                ClientPayloadHandler::handleImportResult
+        );
         registrar.playToServer(
                 ImportVoucherPayload.TYPE,
                 ImportVoucherPayload.STREAM_CODEC,
@@ -208,6 +215,30 @@ public class SneakerNet {
                 }
             });
         }
+
+        /**
+         * 处理 ImportResultPayload：导入成功后清理本地凭证文件
+         */
+        public static void handleImportResult(ImportResultPayload payload, IPayloadContext context) {
+            context.enqueueWork(() -> {
+                try {
+                    Path vouchersDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/");
+                    Path sourceFile = vouchersDir.resolve(payload.fileName());
+                    if (!Files.exists(sourceFile)) return;
+
+                    if (payload.success()) {
+                        // 导入成功 → 移到 redeemed/ 目录
+                        Path redeemedDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/redeemed/");
+                        Files.createDirectories(redeemedDir);
+                        Files.move(sourceFile, redeemedDir.resolve(payload.fileName()));
+                        LOGGER.info("[SneakerNet] 客户端已核销凭证: {}", payload.fileName());
+                    }
+                    // 导入失败则不删除，玩家可以重试
+                } catch (IOException e) {
+                    LOGGER.error("[SneakerNet] 客户端核销凭证失败: {}", e.getMessage());
+                }
+            });
+        }
     }
 
     /**
@@ -222,51 +253,39 @@ public class SneakerNet {
                 ServerPlayer player = (ServerPlayer) context.player();
                 if (player == null) return;
 
-                KeyManager km = getKeyManager();
-                VoucherBlacklist bl = getBlacklist();
-                if (km == null || bl == null) {
-                    player.sendSystemMessage(Component.literal("系统未初始化"));
-                    return;
-                }
-
+                boolean success = false;
                 try {
-                    // 解析 JSON
+                    KeyManager km = getKeyManager();
+                    VoucherBlacklist bl = getBlacklist();
+                    if (km == null || bl == null) {
+                        player.sendSystemMessage(Component.literal("系统未初始化"));
+                        return;
+                    }
+
                     Voucher voucher = Voucher.fromJson(payload.voucherJson());
 
-                    // 解密验证
                     VoucherCrypto.DecryptResult result = VoucherCrypto.decryptAndVerify(
-                            km.getLocalKeyPair(),
-                            voucher,
-                            km,
-                            player.getUUID(),
-                            bl,
+                            km.getLocalKeyPair(), voucher, km,
+                            player.getUUID(), bl,
                             Config.REQUIRE_PLAYER_MATCH.get()
                     );
 
                     if (result.success()) {
-                        // 创建 Package 物品
                         ItemNbtUtil.ContainerNbtData containerData =
                                 ItemNbtUtil.deserializeContainerFromBytes(
-                                        result.plaintextNbt(),
-                                        player.registryAccess()
-                                );
-
+                                        result.plaintextNbt(), player.registryAccess());
                         ItemStack packageStack = PackageItem.createPackage(
-                                containerData,
-                                voucher.issuerKeyId(),
-                                voucher.playerUuid(),
-                                voucher.timestamp(),
-                                player.registryAccess()
-                        );
-
+                                containerData, voucher.issuerKeyId(),
+                                voucher.playerUuid(), voucher.timestamp(),
+                                player.registryAccess());
                         if (!player.getInventory().add(packageStack)) {
                             player.drop(packageStack, false);
                         }
-
                         player.sendSystemMessage(Component.translatable(
                                 "sneakernet.import.result", 1, 0));
                         LOGGER.info("[SneakerNet] 客户端导入成功: {} ({})",
                                 payload.fileName(), player.getName().getString());
+                        success = true;
                     } else {
                         player.sendSystemMessage(Component.literal(
                                 "导入失败: " + result.failureReason()));
@@ -276,6 +295,10 @@ public class SneakerNet {
                     player.sendSystemMessage(Component.literal(
                             "导入失败: " + e.getMessage()));
                 }
+
+                // 发送结果回执给客户端（客户端据此清理本地文件）
+                PacketDistributor.sendToPlayer(player,
+                        new ImportResultPayload(payload.fileName(), success));
             });
         }
     }

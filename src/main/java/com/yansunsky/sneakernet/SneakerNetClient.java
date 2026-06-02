@@ -40,16 +40,50 @@ public class SneakerNetClient {
     private void onRegisterClientCommands(RegisterClientCommandsEvent event) {
         event.getDispatcher().register(Commands.literal("sneakernet")
                 .then(Commands.literal("import")
+                        // /sneakernet import — 扫描并上传所有凭证
+                        .executes(ctx -> doClientImportAll())
+                        // /sneakernet import <filename> — 上传指定凭证
                         .then(Commands.argument("filename", StringArgumentType.string())
                                 .executes(ctx -> {
                                     String filename = StringArgumentType.getString(ctx, "filename");
                                     return doClientImport(filename);
                                 })
                         )
-                        // 不带参数时不自动扫全部（由用户自己指定文件名）
                 )
         );
         SneakerNet.LOGGER.debug("[SneakerNet] 客户端导入命令已注册");
+    }
+
+    /**
+     * 扫描目录并逐个上传所有凭证文件
+     */
+    private int doClientImportAll() {
+        Path vouchersDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/");
+        if (!Files.exists(vouchersDir)) {
+            SneakerNet.LOGGER.warn("[SneakerNet] 凭证目录不存在: {}", vouchersDir);
+            return 0;
+        }
+
+        try (var files = Files.list(vouchersDir)) {
+            java.util.List<Path> jsonFiles = files
+                    .filter(f -> f.toString().endsWith(".json"))
+                    .toList();
+
+            if (jsonFiles.isEmpty()) {
+                SneakerNet.LOGGER.info("[SneakerNet] 凭证目录中没有 .json 文件");
+                return 0;
+            }
+
+            for (Path file : jsonFiles) {
+                String filename = file.getFileName().toString();
+                doClientImport(filename);
+            }
+            SneakerNet.LOGGER.info("[SneakerNet] 已批量上传 {} 个凭证文件", jsonFiles.size());
+            return jsonFiles.size();
+        } catch (IOException e) {
+            SneakerNet.LOGGER.error("[SneakerNet] 扫描凭证目录失败", e);
+            return 0;
+        }
     }
 
     /**
