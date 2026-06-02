@@ -48,13 +48,6 @@ public class VoucherBlacklist {
      * @throws SQLException 如果数据库初始化失败
      */
     public synchronized void initialize() throws SQLException {
-        // 确保 SQLite JDBC 驱动已加载
-        try {
-            Class.forName("org.sqlite.JDBC");
-        } catch (ClassNotFoundException e) {
-            throw new SQLException("找不到 SQLite JDBC 驱动", e);
-        }
-
         // 确保目录存在
         try {
             Files.createDirectories(dbPath.getParent());
@@ -62,6 +55,7 @@ public class VoucherBlacklist {
             throw new SQLException("无法创建数据库目录: " + dbPath.getParent(), e);
         }
 
+        // JDBC 4.0+ 自动通过 SPI 加载驱动，无需 Class.forName
         String jdbcUrl = "jdbc:sqlite:" + dbPath;
         this.connection = DriverManager.getConnection(jdbcUrl);
 
