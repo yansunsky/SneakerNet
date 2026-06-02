@@ -85,7 +85,7 @@ public class VoucherBlacklist {
      * 保存黑名单到文件
      */
     private void save() throws IOException {
-        Files.writeString(filePath, GSON.toJson(Map.of("entries", entries)));
+        Files.writeString(filePath, GSON.toJson(entries));
     }
 
     /**
