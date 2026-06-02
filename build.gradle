@@ -77,8 +77,10 @@ configurations {
 
 dependencies {
     // SQLite JDBC — 用于将已核销凭证记入黑名单
-    // 使用 jarJar 将驱动内嵌进 mod JAR（JAR-in-JAR）
-    jarJar('org.xerial:sqlite-jdbc:3.47.1.0')
+    // implementation: 开发环境（runClient/runServer）运行时 classpath
+    // jarJar: 生产环境打包内嵌进 mod JAR
+    implementation 'org.xerial:sqlite-jdbc:3.47.1.0'
+    jarJar 'org.xerial:sqlite-jdbc:3.47.1.0'
 
     // JEI 可选依赖（按需取消注释）
     // compileOnly "mezz.jei:jei-${minecraft_version}-common-api:${jei_version}"
