@@ -3,6 +3,7 @@ package com.yansunsky.sneakernet;
 import com.mojang.logging.LogUtils;
 import com.yansunsky.sneakernet.commands.SneakerNetCommands;
 import com.yansunsky.sneakernet.crypto.KeyManager;
+import com.yansunsky.sneakernet.crypto.VoucherCrypto;
 import com.yansunsky.sneakernet.data.PlayerBindData;
 import com.yansunsky.sneakernet.data.VoucherBlacklist;
 import com.yansunsky.sneakernet.executor.CryptoExecutor;
@@ -13,6 +14,10 @@ import net.neoforged.fml.ModContainer;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.fml.loading.FMLPaths;
+import com.yansunsky.sneakernet.data.ItemNbtUtil;
+import com.yansunsky.sneakernet.data.Voucher;
+import com.yansunsky.sneakernet.items.PackageItem;
+import com.yansunsky.sneakernet.net.ImportVoucherPayload;
 import com.yansunsky.sneakernet.net.VoucherSyncPayload;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
@@ -27,6 +32,12 @@ import org.slf4j.Logger;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.item.ItemStack;
 
 /**
  * SneakerNet — 离线凭证跨服物品传送 Mod 主类 (v0.5 ECC)
@@ -168,6 +179,11 @@ public class SneakerNet {
                 VoucherSyncPayload.STREAM_CODEC,
                 ClientPayloadHandler::handleVoucherSync
         );
+        registrar.playToServer(
+                ImportVoucherPayload.TYPE,
+                ImportVoucherPayload.STREAM_CODEC,
+                ServerPayloadHandler::handleImportVoucher
+        );
         LOGGER.info("[SneakerNet] 网络载荷处理器已注册");
     }
 
@@ -189,6 +205,76 @@ public class SneakerNet {
                             payload.suggestedFileName(), targetFile);
                 } catch (IOException e) {
                     LOGGER.error("[SneakerNet] 客户端保存凭证失败：{}", e.getMessage());
+                }
+            });
+        }
+    }
+
+    /**
+     * 服务端网络包处理器
+     */
+    private static class ServerPayloadHandler {
+        /**
+         * 处理 ImportVoucherPayload：解析凭证 JSON 并执行导入
+         */
+        public static void handleImportVoucher(ImportVoucherPayload payload, IPayloadContext context) {
+            context.enqueueWork(() -> {
+                ServerPlayer player = (ServerPlayer) context.player();
+                if (player == null) return;
+
+                KeyManager km = getKeyManager();
+                VoucherBlacklist bl = getBlacklist();
+                if (km == null || bl == null) {
+                    player.sendSystemMessage(Component.literal("系统未初始化"));
+                    return;
+                }
+
+                try {
+                    // 解析 JSON
+                    Voucher voucher = Voucher.fromJson(payload.voucherJson());
+
+                    // 解密验证
+                    VoucherCrypto.DecryptResult result = VoucherCrypto.decryptAndVerify(
+                            km.getLocalKeyPair(),
+                            voucher,
+                            km,
+                            player.getUUID(),
+                            bl,
+                            Config.REQUIRE_PLAYER_MATCH.get()
+                    );
+
+                    if (result.success()) {
+                        // 创建 Package 物品
+                        ItemNbtUtil.ContainerNbtData containerData =
+                                ItemNbtUtil.deserializeContainerFromBytes(
+                                        result.plaintextNbt(),
+                                        player.registryAccess()
+                                );
+
+                        ItemStack packageStack = PackageItem.createPackage(
+                                containerData,
+                                voucher.issuerKeyId(),
+                                voucher.playerUuid(),
+                                voucher.timestamp(),
+                                player.registryAccess()
+                        );
+
+                        if (!player.getInventory().add(packageStack)) {
+                            player.drop(packageStack, false);
+                        }
+
+                        player.sendSystemMessage(Component.translatable(
+                                "sneakernet.import.result", 1, 0));
+                        LOGGER.info("[SneakerNet] 客户端导入成功: {} ({})",
+                                payload.fileName(), player.getName().getString());
+                    } else {
+                        player.sendSystemMessage(Component.literal(
+                                "导入失败: " + result.failureReason()));
+                    }
+                } catch (Exception e) {
+                    LOGGER.error("[SneakerNet] 客户端导入异常", e);
+                    player.sendSystemMessage(Component.literal(
+                            "导入失败: " + e.getMessage()));
                 }
             });
         }
