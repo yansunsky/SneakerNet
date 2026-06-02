@@ -6,6 +6,7 @@
   "sneakernet.ticket.no_trusted_servers": "No trusted servers configured. Use /sneakernet trust to add servers first.",
   "sneakernet.ticket.export_success": "Voucher exported successfully: %s",
   "sneakernet.ticket.export_failed": "Export failed: %s",
+  "sneakernet.ticket.no_target": "Please specify a target server first. Use /sneakernet bind <server_name>",
 
   "sneakernet.package.no_data": "This package has no item data!",
   "sneakernet.package.no_space": "No space to place container here!",
@@ -24,6 +25,11 @@
   "sneakernet.import.no_vouchers": "No voucher files found in sneakernet/vouchers/ directory.",
   "sneakernet.import.file_not_found": "Voucher file not found: %s",
   "sneakernet.import.result": "Import complete: %d succeeded, %d failed",
+
+  "sneakernet.bind.not_found": "Server '%s' not found in trusted list. Use /sneakernet list to see available servers.",
+  "sneakernet.bind.success": "Bound to server: %s. Now you can use SneakerNet Ticket to export items to this server.",
+  "sneakernet.bind.not_bound": "You haven't bound any server yet.",
+  "sneakernet.bind.cleared": "Server binding cleared.",
 
   "sneakernet.message.inventory_full": "Inventory full, items dropped on the ground"
 }

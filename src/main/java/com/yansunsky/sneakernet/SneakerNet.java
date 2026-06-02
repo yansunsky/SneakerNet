@@ -3,6 +3,7 @@ package com.yansunsky.sneakernet;
 import com.mojang.logging.LogUtils;
 import com.yansunsky.sneakernet.commands.SneakerNetCommands;
 import com.yansunsky.sneakernet.crypto.KeyManager;
+import com.yansunsky.sneakernet.data.PlayerBindData;
 import com.yansunsky.sneakernet.data.VoucherBlacklist;
 import com.yansunsky.sneakernet.executor.CryptoExecutor;
 import com.yansunsky.sneakernet.items.ModItems;
@@ -17,6 +18,7 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.minecraft.server.MinecraftServer;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
@@ -210,5 +212,19 @@ public class SneakerNet {
      */
     public static CryptoExecutor getCryptoExecutor() {
         return cryptoExecutor;
+    }
+
+    /**
+     * 获取玩家目标服务器绑定数据
+     * <p>
+     * 数据持久化在 world/data/sneakernet_player_binds.dat 中，
+     * 记录每个玩家绑定的目标服务器名。
+     * </p>
+     *
+     * @param server Minecraft 服务器实例
+     * @return PlayerBindData 实例
+     */
+    public static PlayerBindData getPlayerBindData(MinecraftServer server) {
+        return PlayerBindData.get(server);
     }
 }

@@ -5,6 +5,7 @@ import com.yansunsky.sneakernet.SneakerNet;
 import com.yansunsky.sneakernet.crypto.KeyManager;
 import com.yansunsky.sneakernet.crypto.VoucherCrypto;
 import com.yansunsky.sneakernet.data.ItemNbtUtil;
+import com.yansunsky.sneakernet.data.PlayerBindData;
 import com.yansunsky.sneakernet.data.Voucher;
 import com.yansunsky.sneakernet.executor.CryptoExecutor;
 import com.yansunsky.sneakernet.net.VoucherSyncPayload;
@@ -31,6 +32,7 @@ import org.slf4j.LoggerFactory;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyPair;
 import java.security.PublicKey;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -82,15 +84,49 @@ public class TicketItem extends Item {
             return InteractionResultHolder.fail(itemStack);
         }
 
-        // [4] 先扣除 1 个 Ticket（防止重复触发）
+        // [4] 检查玩家是否绑定了目标服务器
+        MinecraftServer server = level.getServer();
+        PlayerBindData bindData = SneakerNet.getPlayerBindData(server);
+        String targetServerName = bindData.getBinding(player.getUUID());
+        if (targetServerName == null) {
+            player.sendSystemMessage(Component.translatable("sneakernet.ticket.no_target")
+                    .withStyle(ChatFormatting.RED));
+            return InteractionResultHolder.fail(itemStack);
+        }
+
+        // [5] 查找目标服务器对应的公钥
+        PublicKey resolvedPubKey = null;
+        for (KeyManager.TrustedServer ts : keyManager.getTrustedServers()) {
+            if (ts.name().equals(targetServerName)) {
+                try {
+                    resolvedPubKey = KeyManager.decodePublicKeyFromBase64(ts.pubKeyBase64());
+                } catch (Exception e) {
+                    player.sendSystemMessage(Component.literal("解析目标服务器公钥失败: " + e.getMessage())
+                            .withStyle(ChatFormatting.RED));
+                    return InteractionResultHolder.fail(itemStack);
+                }
+                break;
+            }
+        }
+        if (resolvedPubKey == null) {
+            // 绑定的服务器已被移除，清除绑定
+            bindData.removeBinding(player.getUUID());
+            player.sendSystemMessage(Component.translatable("sneakernet.ticket.no_target")
+                    .withStyle(ChatFormatting.RED));
+            return InteractionResultHolder.fail(itemStack);
+        }
+        // resolvedPubKey 现已有效赋值且不再更改 → effectively final
+
+        // [6] 先扣除 1 个 Ticket（防止重复触发）
         itemStack.shrink(1);
 
-        // [5] 异步执行导出
+        // [7] 异步执行导出（只导出目标服务器的凭证）
         UUID playerUuid = player.getUUID();
-        MinecraftServer server = level.getServer();
 
+        final PublicKey targetPubKey = resolvedPubKey; // 显式 final 供 lambda 捕获
         SneakerNet.getCryptoExecutor().supplyAsync(() -> {
-            return doExport(container, keyManager, playerUuid, level.registryAccess());
+            return doExport(container, keyManager.getLocalKeyPair(), targetPubKey,
+                    targetServerName, playerUuid, level.registryAccess());
         }).thenAccept(result -> {
             if (result.success) {
                 // [a] 发送网络包到客户端（任何线程均可发送）
@@ -130,48 +166,53 @@ public class TicketItem extends Item {
     /**
      * 导出逻辑（在线程池中执行，不阻塞主线程）
      * <p>
-     * 为每个可信服务器生成一份加密凭据，保存到服务端本地目录，
-     * 同时返回文件名→JSON内容的映射，用于发送给玩家客户端。
+     * 为玩家绑定的目标服务器生成一份加密凭据，
+     * 不再遍历所有可信服务器。
      * </p>
+     *
+     * @param container      要导出的容器
+     * @param localKeyPair   本地 ECC 密钥对
+     * @param targetPubKey   目标服务器的公钥
+     * @param targetServer   目标服务器名
+     * @param playerUuid     导出玩家 UUID
+     * @param registryAccess 注册表访问器
      */
-    private static ExportResult doExport(Container container, KeyManager keyManager,
-                                         UUID playerUuid, net.minecraft.core.RegistryAccess registryAccess) {
+    private static ExportResult doExport(Container container,
+                                         KeyPair localKeyPair,
+                                         PublicKey targetPubKey,
+                                         String targetServer,
+                                         UUID playerUuid,
+                                         net.minecraft.core.RegistryAccess registryAccess) {
         try {
             // [a] 序列化容器 NBT
             byte[] nbtBytes = ItemNbtUtil.serializeContainerToBytes(
                     container, registryAccess
             );
 
-            // [b] 对每个可信服务器各生成一份凭据
+            // [b] 只生成目标服务器的凭据
             Map<String, String> voucherFiles = new HashMap<>();
             int ttlSeconds = Config.VOUCHER_TTL_HOURS.get() * 3600;
 
-            for (KeyManager.TrustedServer trustedServer : keyManager.getTrustedServers()) {
-                PublicKey targetPubKey = KeyManager.decodePublicKeyFromBase64(trustedServer.pubKeyBase64());
+            // [c] 加密 + 签名（用目标服务器公钥）
+            Voucher voucher = VoucherCrypto.encryptAndSign(
+                    localKeyPair,
+                    targetPubKey,
+                    nbtBytes,
+                    playerUuid,
+                    ttlSeconds
+            );
 
-                // [c] 加密 + 签名
-                Voucher voucher = VoucherCrypto.encryptAndSign(
-                        keyManager.getLocalKeyPair(),
-                        targetPubKey,
-                        nbtBytes,
-                        playerUuid,
-                        ttlSeconds
-                );
+            // [d] 保存到服务端目录
+            Path voucherDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/");
+            Files.createDirectories(voucherDir);
 
-                // [d] 保存到服务端目录（使用固定文件名，带信任服务器名前缀）
-                Path voucherDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/");
-                Files.createDirectories(voucherDir);
+            String fileName = targetServer + "_" + voucher.generateFileName();
+            Path voucherFile = voucherDir.resolve(fileName);
+            Files.writeString(voucherFile, voucher.toJson());
 
-                String fileName = trustedServer.name() + "_" + voucher.generateFileName();
-                Path voucherFile = voucherDir.resolve(fileName);
-                // 直接写入完整路径，避免 saveToFile() 内部重新生成随机文件名
-                Files.writeString(voucherFile, voucher.toJson());
+            voucherFiles.put(fileName, voucher.toJson());
 
-                // 同时保存文件名→JSON 映射，用于后续发送到客户端
-                voucherFiles.put(fileName, voucher.toJson());
-            }
-
-            LOGGER.info("[SneakerNet] 导出成功：{} 个凭据", voucherFiles.size());
+            LOGGER.info("[SneakerNet] 导出成功：目标服务器={}, 文件名={}", targetServer, fileName);
             return ExportResult.success(voucherFiles);
 
         } catch (Exception e) {

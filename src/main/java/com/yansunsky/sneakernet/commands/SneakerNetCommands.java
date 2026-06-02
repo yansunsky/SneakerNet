@@ -5,6 +5,7 @@ import com.yansunsky.sneakernet.SneakerNet;
 import com.yansunsky.sneakernet.crypto.KeyManager;
 import com.yansunsky.sneakernet.crypto.VoucherCrypto;
 import com.yansunsky.sneakernet.data.ItemNbtUtil;
+import com.yansunsky.sneakernet.data.PlayerBindData;
 import com.yansunsky.sneakernet.data.Voucher;
 import com.yansunsky.sneakernet.data.VoucherBlacklist;
 import com.yansunsky.sneakernet.items.ModItems;
@@ -73,6 +74,15 @@ public class SneakerNetCommands {
                 .then(Commands.literal("list")
                         .requires(src -> src.hasPermission(2))
                         .executes(ctx -> executeList(ctx)))
+                // ├── bind（所有玩家）
+                .then(Commands.literal("bind")
+                        .requires(src -> src.hasPermission(0))
+                        // /sneakernet bind <name>
+                        .then(Commands.argument("name", StringArgumentType.word())
+                                .executes(ctx -> executeBind(ctx)))
+                        // /sneakernet bind clear
+                        .then(Commands.literal("clear")
+                                .executes(ctx -> executeBindClear(ctx))))
                 // └── import（所有玩家）
                 .then(Commands.literal("import")
                         .requires(src -> src.hasPermission(0))
@@ -219,6 +229,84 @@ public class SneakerNetCommands {
         }
 
         return servers.size();
+    }
+
+    // ─── /sneakernet bind <name> ───
+
+    /**
+     * 将当前玩家绑定到指定的可信服务器
+     * <p>
+     * 绑定后，使用 Ticket 导出时只会生成该服务器的凭证。
+     * 玩家需要先绑定目标服务器才能使用 Ticket。
+     * </p>
+     */
+    private static int executeBind(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player;
+        try {
+            player = source.getPlayerOrException();
+        } catch (Exception e) {
+            source.sendFailure(Component.literal("仅玩家可执行此命令"));
+            return 0;
+        }
+
+        String targetName = StringArgumentType.getString(ctx, "name");
+        KeyManager keyManager = SneakerNet.getKeyManager();
+        if (keyManager == null) {
+            source.sendFailure(Component.literal("密钥管理器未初始化"));
+            return 0;
+        }
+
+        // 验证目标服务器名是否存在于可信服务器列表中
+        boolean found = false;
+        for (KeyManager.TrustedServer server : keyManager.getTrustedServers()) {
+            if (server.name().equals(targetName)) {
+                found = true;
+                break;
+            }
+        }
+
+        if (!found) {
+            source.sendFailure(Component.translatable("sneakernet.bind.not_found", targetName)
+                    .withStyle(ChatFormatting.RED));
+            return 0;
+        }
+
+        // 保存绑定
+        PlayerBindData bindData = SneakerNet.getPlayerBindData(source.getServer());
+        bindData.setBinding(player.getUUID(), targetName);
+
+        source.sendSuccess(() -> Component.translatable("sneakernet.bind.success", targetName)
+                .withStyle(ChatFormatting.GREEN), false);
+        return 1;
+    }
+
+    // ─── /sneakernet bind clear ───
+
+    /**
+     * 清除当前玩家的目标服务器绑定
+     */
+    private static int executeBindClear(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        ServerPlayer player;
+        try {
+            player = source.getPlayerOrException();
+        } catch (Exception e) {
+            source.sendFailure(Component.literal("仅玩家可执行此命令"));
+            return 0;
+        }
+
+        PlayerBindData bindData = SneakerNet.getPlayerBindData(source.getServer());
+        if (!bindData.hasBinding(player.getUUID())) {
+            source.sendSuccess(() -> Component.translatable("sneakernet.bind.not_bound")
+                    .withStyle(ChatFormatting.GRAY), false);
+            return 0;
+        }
+
+        bindData.removeBinding(player.getUUID());
+        source.sendSuccess(() -> Component.translatable("sneakernet.bind.cleared")
+                .withStyle(ChatFormatting.GREEN), false);
+        return 1;
     }
 
     // ─── /sneakernet import（全部）───

@@ -6,6 +6,7 @@
   "sneakernet.ticket.no_trusted_servers": "未配置可信服务器。请先使用 /sneakernet trust 添加服务器。",
   "sneakernet.ticket.export_success": "凭证导出成功：%s",
   "sneakernet.ticket.export_failed": "导出失败：%s",
+  "sneakernet.ticket.no_target": "请先指定目标服务器。使用 /sneakernet bind <服务器名>",
 
   "sneakernet.package.no_data": "此包裹没有物品数据！",
   "sneakernet.package.no_space": "此处没有空间放置容器！",
@@ -24,6 +25,11 @@
   "sneakernet.import.no_vouchers": "sneakernet/vouchers/ 目录中未找到凭证文件。",
   "sneakernet.import.file_not_found": "未找到凭证文件：%s",
   "sneakernet.import.result": "导入完成：%d 成功，%d 失败",
+
+  "sneakernet.bind.not_found": "可信服务器列表中未找到 '%s'。使用 /sneakernet list 查看可用服务器。",
+  "sneakernet.bind.success": "已绑定到服务器：%s。现在可以使用凭证票向该服务器导出物品。",
+  "sneakernet.bind.not_bound": "你尚未绑定任何服务器。",
+  "sneakernet.bind.cleared": "服务器绑定已清除。",
 
   "sneakernet.message.inventory_full": "背包已满，物品已掉落在地上"
 }
