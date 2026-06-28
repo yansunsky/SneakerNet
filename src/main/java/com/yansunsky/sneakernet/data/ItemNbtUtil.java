@@ -13,6 +13,7 @@ import net.minecraft.world.Container;
 import net.minecraft.world.Nameable;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.neoforged.neoforge.items.IItemHandler;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -88,6 +89,60 @@ public final class ItemNbtUtil {
             List<CompoundTag> items = new ArrayList<>();
             for (int i = 0; i < container.getContainerSize(); i++) {
                 ItemStack stack = container.getItem(i);
+                if (!stack.isEmpty()) {
+                    items.add(serializeItemStack(stack, registryAccess));
+                }
+            }
+
+            buf.writeVarInt(items.size());
+            for (CompoundTag itemTag : items) {
+                buf.writeNbt(itemTag);
+            }
+
+            // 4. 读取结果
+            byte[] result = new byte[buf.readableBytes()];
+            buf.readBytes(result);
+            return result;
+        } finally {
+            buf.release();
+        }
+    }
+
+    /**
+     * 将 IItemHandler 序列化为二进制字节（用于加密，兼容任意容器）
+     * <p>
+     * 与 {@link #serializeContainerToBytes} 使用完全相同的二进制格式，
+     * 但物品来源是 NeoForge 的 {@link IItemHandler} 能力，从而支持
+     * 原版容器以及绝大多数暴露物品能力的模组容器。
+     * </p>
+     *
+     * @param handler        物品能力处理器
+     * @param containerType  容器类型（方块注册名，如 "minecraft:chest"）
+     * @param customName     自定义名称（可为 null）
+     * @param registryAccess 注册表访问器（用于 ItemStack.save）
+     * @return 二进制数据
+     */
+    public static byte[] serializeItemHandlerToBytes(IItemHandler handler,
+                                                     String containerType,
+                                                     Component customName,
+                                                     RegistryAccess registryAccess) {
+        FriendlyByteBuf buf = new FriendlyByteBuf(Unpooled.buffer());
+        try {
+            // 1. 写入容器类型
+            buf.writeUtf(containerType);
+
+            // 2. 写入自定义名称
+            if (customName != null) {
+                buf.writeBoolean(true);
+                buf.writeUtf(Component.Serializer.toJson(customName, registryAccess));
+            } else {
+                buf.writeBoolean(false);
+            }
+
+            // 3. 写入物品列表
+            List<CompoundTag> items = new ArrayList<>();
+            for (int i = 0; i < handler.getSlots(); i++) {
+                ItemStack stack = handler.getStackInSlot(i);
                 if (!stack.isEmpty()) {
                     items.add(serializeItemStack(stack, registryAccess));
                 }

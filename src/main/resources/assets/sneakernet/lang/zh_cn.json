@@ -2,9 +2,12 @@
   "item.sneakernet.sneakernet_ticket": "SneakerNet 凭证票",
   "item.sneakernet.sneakernet_package": "SneakerNet 包裹",
 
-  "sneakernet.ticket.not_container": "你需要对准一个容器（箱子、潜影盒、木桶）才能导出物品！",
+  "itemGroup.sneakernet.sneakernet_tab": "SneakerNet",
+
+  "sneakernet.ticket.not_container": "你需要对准一个可以存放物品的容器才能导出物品！",
   "sneakernet.ticket.no_trusted_servers": "未配置可信服务器。请先使用 /sneakernet trust 添加服务器。",
   "sneakernet.ticket.export_success": "凭证导出成功：%s",
+  "sneakernet.ticket.export_hint": "凭证已保存到本地，登录目标服务器后使用 /sneakernet import 即可导出包裹。",
   "sneakernet.ticket.export_failed": "导出失败：%s",
   "sneakernet.ticket.no_target": "请先使用 /sneakernet bind 绑定目标服务器",
 

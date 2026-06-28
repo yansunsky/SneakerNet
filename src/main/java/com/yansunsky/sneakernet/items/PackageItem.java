@@ -64,7 +64,6 @@ public class PackageItem extends Item {
 
         // [2] 解析容器数据
         String containerType = dataTag.getString("containerType");
-        String customNameJson = dataTag.contains("customName") ? dataTag.getString("customName") : null;
 
         // [3] 确定放置位置
         HitResult hitResult = player.pick(5.0, 0, false);
@@ -94,36 +93,41 @@ public class PackageItem extends Item {
 
         level.setBlockAndUpdate(placePos, containerBlock.defaultBlockState());
 
-        // [6] 填入物品
-        BlockEntity placedBE = level.getBlockEntity(placePos);
-        if (placedBE instanceof net.minecraft.world.Container container) {
-            CompoundTag itemsTag = dataTag.getCompound("items");
-            HolderLookup.Provider registryAccess = level.registryAccess();
+        // [6] 填入物品：优先通过 IItemHandler 能力（兼容任意容器），否则回退 Container
+        CompoundTag itemsTag = dataTag.getCompound("items");
+        HolderLookup.Provider registryAccess = level.registryAccess();
 
+        net.neoforged.neoforge.items.IItemHandler handler =
+                level.getCapability(net.neoforged.neoforge.capabilities.Capabilities.ItemHandler.BLOCK, placePos, null);
+
+        if (handler instanceof net.neoforged.neoforge.items.IItemHandlerModifiable modifiable) {
             int slot = 0;
             for (String key : itemsTag.getAllKeys()) {
                 CompoundTag itemTag = itemsTag.getCompound(key);
                 ItemStack parsedStack = ItemStack.parseOptional(registryAccess, itemTag);
-                if (!parsedStack.isEmpty() && slot < container.getContainerSize()) {
-                    container.setItem(slot, parsedStack);
+                if (!parsedStack.isEmpty() && slot < modifiable.getSlots()) {
+                    modifiable.setStackInSlot(slot, parsedStack);
                     slot++;
                 }
             }
-
-            // 设置自定义名称
-            if (customNameJson != null) {
-                try {
-                    Component customName = Component.Serializer.fromJson(customNameJson, registryAccess);
-                    if (customName != null && placedBE instanceof net.minecraft.world.Nameable nameable) {
-                        // BlockEntity 本身不直接 setCustomName，通过 Container 设置
-                        // 对于实现了 Nameable 的 BE，我们更新其显示名称
-                        placedBE.setChanged();
-                    }
-                } catch (Exception e) {
-                    LOGGER.warn("[SneakerNet] 解析自定义名称失败", e);
-                }
+            BlockEntity placedBE = level.getBlockEntity(placePos);
+            if (placedBE != null) {
+                placedBE.setChanged();
             }
-            placedBE.setChanged();
+        } else {
+            BlockEntity placedBE = level.getBlockEntity(placePos);
+            if (placedBE instanceof net.minecraft.world.Container container) {
+                int slot = 0;
+                for (String key : itemsTag.getAllKeys()) {
+                    CompoundTag itemTag = itemsTag.getCompound(key);
+                    ItemStack parsedStack = ItemStack.parseOptional(registryAccess, itemTag);
+                    if (!parsedStack.isEmpty() && slot < container.getContainerSize()) {
+                        container.setItem(slot, parsedStack);
+                        slot++;
+                    }
+                }
+                placedBE.setChanged();
+            }
         }
 
         // [7] 消耗 Package 物品
@@ -193,15 +197,19 @@ public class PackageItem extends Item {
 
     /**
      * 根据容器类型标识获取对应的方块
+     * <p>
+     * 直接按注册名从方块注册表查找，从而支持任意（含模组）容器方块。
+     * 找不到或解析失败返回 null。
+     * </p>
      */
     private static Block getContainerBlock(String containerType) {
-        return switch (containerType) {
-            case "minecraft:chest" -> Blocks.CHEST;
-            case "minecraft:shulker_box" -> Blocks.SHULKER_BOX; // Phase 1: 默认紫色
-            case "minecraft:barrel" -> Blocks.BARREL;
-            case "minecraft:trapped_chest" -> Blocks.TRAPPED_CHEST;
-            case "minecraft:ender_chest" -> Blocks.ENDER_CHEST;
-            default -> null;
-        };
+        net.minecraft.resources.ResourceLocation id =
+                net.minecraft.resources.ResourceLocation.tryParse(containerType);
+        if (id == null || !net.minecraft.core.registries.BuiltInRegistries.BLOCK.containsKey(id)) {
+            return null;
+        }
+        Block block = net.minecraft.core.registries.BuiltInRegistries.BLOCK.get(id);
+        // AIR 表示注册表里没有这个方块（getKey 缺省值）
+        return block == Blocks.AIR ? null : block;
     }
 }

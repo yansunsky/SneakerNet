@@ -2,9 +2,12 @@
   "item.sneakernet.sneakernet_ticket": "SneakerNet Ticket",
   "item.sneakernet.sneakernet_package": "SneakerNet Package",
 
-  "sneakernet.ticket.not_container": "You must look at a container (chest, shulker box, barrel) to export items!",
+  "itemGroup.sneakernet.sneakernet_tab": "SneakerNet",
+
+  "sneakernet.ticket.not_container": "You must look at a container that can store items to export items!",
   "sneakernet.ticket.no_trusted_servers": "No trusted servers configured. Use /sneakernet trust to add servers first.",
   "sneakernet.ticket.export_success": "Voucher exported successfully: %s",
+  "sneakernet.ticket.export_hint": "The voucher is saved locally. Log in to the target server and use /sneakernet import to export the package.",
   "sneakernet.ticket.export_failed": "Export failed: %s",
   "sneakernet.ticket.no_target": "Please bind a target server first. Use /sneakernet bind <server_name>",
 

@@ -7,15 +7,18 @@ import com.yansunsky.sneakernet.crypto.VoucherCrypto;
 import com.yansunsky.sneakernet.data.ItemNbtUtil;
 import com.yansunsky.sneakernet.data.PlayerBindData;
 import com.yansunsky.sneakernet.data.Voucher;
-import com.yansunsky.sneakernet.executor.CryptoExecutor;
 import com.yansunsky.sneakernet.net.VoucherSyncPayload;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.neoforge.capabilities.Capabilities;
+import net.neoforged.neoforge.items.IItemHandler;
+import net.neoforged.neoforge.items.IItemHandlerModifiable;
 import net.neoforged.neoforge.network.PacketDistributor;
-import net.minecraft.world.Container;
+import net.minecraft.world.Clearable;
+import net.minecraft.world.Nameable;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.entity.player.Player;
@@ -34,9 +37,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.security.KeyPair;
 import java.security.PublicKey;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -66,11 +67,14 @@ public class TicketItem extends Item {
         }
         BlockHitResult blockHitResult = (BlockHitResult) hitResult;
 
-        // [2] 检查目标方块是否是容器
+        // [2] 检查目标方块是否是可存储物品的容器
+        //     优先使用 NeoForge 的 IItemHandler 能力（原版容器自动注册，
+        //     模组容器普遍暴露），从而兼容任意能存储物品的容器。
         BlockPos blockPos = blockHitResult.getBlockPos();
         BlockEntity blockEntity = level.getBlockEntity(blockPos);
 
-        if (!(blockEntity instanceof Container container)) {
+        IItemHandler handler = level.getCapability(Capabilities.ItemHandler.BLOCK, blockPos, null);
+        if (handler == null) {
             player.sendSystemMessage(Component.translatable("sneakernet.ticket.not_container")
                     .withStyle(ChatFormatting.RED));
             return InteractionResultHolder.fail(itemStack);
@@ -120,13 +124,30 @@ public class TicketItem extends Item {
         // [6] 先扣除 1 个 Ticket（防止重复触发）
         itemStack.shrink(1);
 
-        // [7] 异步执行导出（只导出目标服务器的凭证）
-        UUID playerUuid = player.getUUID();
+        // [7] 在服务端主线程同步序列化容器（能力对象不可跨线程持有）
+        String containerType = resolveContainerType(level, blockPos);
+        Component customName = (blockEntity instanceof Nameable nameable) ? nameable.getCustomName() : null;
+        byte[] nbtBytes;
+        try {
+            nbtBytes = ItemNbtUtil.serializeItemHandlerToBytes(
+                    handler, containerType, customName, level.registryAccess());
+        } catch (Exception e) {
+            // 序列化失败，退还 Ticket
+            player.getInventory().add(new ItemStack(ModItems.TICKET.get(), 1));
+            player.sendSystemMessage(Component.translatable(
+                    "sneakernet.ticket.export_failed", e.getMessage()
+            ).withStyle(ChatFormatting.RED));
+            return InteractionResultHolder.fail(itemStack);
+        }
 
+        // [8] 异步执行加密导出（只导出目标服务器的凭证）
+        UUID playerUuid = player.getUUID();
+        final IItemHandler finalHandler = handler;
         final PublicKey targetPubKey = resolvedPubKey; // 显式 final 供 lambda 捕获
+        final byte[] finalNbtBytes = nbtBytes;
         SneakerNet.getCryptoExecutor().supplyAsync(() -> {
-            return doExport(container, keyManager.getLocalKeyPair(), targetPubKey,
-                    targetServerName, playerUuid, level.registryAccess());
+            return doExport(finalNbtBytes, keyManager.getLocalKeyPair(), targetPubKey,
+                    targetServerName, playerUuid);
         }).thenAccept(result -> {
             if (result.success) {
                 // [a] 发送网络包到客户端（任何线程均可发送）
@@ -139,7 +160,7 @@ public class TicketItem extends Item {
                 // [b] 切回主线程：清空容器 + 移除方块 + 通知玩家
                 server.execute(() -> {
                     // 清空容器物品（防止物品复制）
-                    container.clearContent();
+                    clearContainer(finalHandler, level, blockPos);
                     // 移除容器方块
                     level.setBlock(blockPos, Blocks.AIR.defaultBlockState(),
                             net.minecraft.world.level.block.Block.UPDATE_ALL
@@ -150,6 +171,10 @@ public class TicketItem extends Item {
                                 "sneakernet.ticket.export_success", fileName
                         ).withStyle(ChatFormatting.GREEN));
                     }
+                    // 提示玩家如何导出/导入包裹
+                    player.sendSystemMessage(Component.translatable(
+                            "sneakernet.ticket.export_hint"
+                    ).withStyle(ChatFormatting.YELLOW));
                 });
             } else {
                 // 导出失败，退还 Ticket
@@ -166,34 +191,27 @@ public class TicketItem extends Item {
     /**
      * 导出逻辑（在线程池中执行，不阻塞主线程）
      * <p>
-     * 为玩家绑定的目标服务器生成一份加密凭据，
-     * 不再遍历所有可信服务器。
+     * 容器已在主线程同步序列化为二进制，这里只做加密 + 签名 + 落盘，
+     * 为玩家绑定的目标服务器生成一份加密凭据。
      * </p>
      *
-     * @param container      要导出的容器
-     * @param localKeyPair   本地 ECC 密钥对
-     * @param targetPubKey   目标服务器的公钥
-     * @param targetServer   目标服务器名
-     * @param playerUuid     导出玩家 UUID
-     * @param registryAccess 注册表访问器
+     * @param nbtBytes     已序列化的容器二进制数据
+     * @param localKeyPair 本地 ECC 密钥对
+     * @param targetPubKey 目标服务器的公钥
+     * @param targetServer 目标服务器名
+     * @param playerUuid   导出玩家 UUID
      */
-    private static ExportResult doExport(Container container,
+    private static ExportResult doExport(byte[] nbtBytes,
                                          KeyPair localKeyPair,
                                          PublicKey targetPubKey,
                                          String targetServer,
-                                         UUID playerUuid,
-                                         net.minecraft.core.RegistryAccess registryAccess) {
+                                         UUID playerUuid) {
         try {
-            // [a] 序列化容器 NBT
-            byte[] nbtBytes = ItemNbtUtil.serializeContainerToBytes(
-                    container, registryAccess
-            );
-
-            // [b] 只生成目标服务器的凭据
+            // [a] 只生成目标服务器的凭据
             Map<String, String> voucherFiles = new HashMap<>();
             int ttlSeconds = Config.VOUCHER_TTL_HOURS.get() * 3600;
 
-            // [c] 加密 + 签名（用目标服务器公钥）
+            // [b] 加密 + 签名（用目标服务器公钥）
             Voucher voucher = VoucherCrypto.encryptAndSign(
                     localKeyPair,
                     targetPubKey,
@@ -202,7 +220,7 @@ public class TicketItem extends Item {
                     ttlSeconds
             );
 
-            // [d] 保存到服务端目录
+            // [c] 保存到服务端目录
             Path voucherDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/");
             Files.createDirectories(voucherDir);
 
@@ -218,6 +236,42 @@ public class TicketItem extends Item {
         } catch (Exception e) {
             LOGGER.error("[SneakerNet] 导出失败", e);
             return ExportResult.fail(e.getMessage());
+        }
+    }
+
+    /**
+     * 解析容器类型标识。
+     * <p>
+     * 返回方块的注册名（如 "minecraft:chest"、"create:item_vault"），
+     * 用于还原时按注册名重新放置同种方块。
+     * </p>
+     */
+    private static String resolveContainerType(Level level, BlockPos blockPos) {
+        return net.minecraft.core.registries.BuiltInRegistries.BLOCK
+                .getKey(level.getBlockState(blockPos).getBlock()).toString();
+    }
+
+    /**
+     * 清空容器物品（防止物品复制）。
+     * <p>
+     * 优先通过 IItemHandler 能力逐槽清空（兼容任意容器）；
+     * 若该处方块实体额外实现了 Clearable，再调用一次以兜底
+     * （原版 Container 接口本身即继承 Clearable）。
+     * </p>
+     */
+    private static void clearContainer(IItemHandler handler, Level level, BlockPos blockPos) {
+        if (handler instanceof IItemHandlerModifiable modifiable) {
+            for (int i = 0; i < modifiable.getSlots(); i++) {
+                modifiable.setStackInSlot(i, ItemStack.EMPTY);
+            }
+        }
+        // 兜底：部分容器仅通过 Clearable 清空才会触发同步
+        BlockEntity be = level.getBlockEntity(blockPos);
+        if (be instanceof Clearable clearable) {
+            clearable.clearContent();
+        }
+        if (be != null) {
+            be.setChanged();
         }
     }
 

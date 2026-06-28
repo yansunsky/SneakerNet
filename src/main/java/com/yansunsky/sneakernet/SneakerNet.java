@@ -7,6 +7,7 @@ import com.yansunsky.sneakernet.crypto.VoucherCrypto;
 import com.yansunsky.sneakernet.data.PlayerBindData;
 import com.yansunsky.sneakernet.data.VoucherBlacklist;
 import com.yansunsky.sneakernet.executor.CryptoExecutor;
+import com.yansunsky.sneakernet.items.ModCreativeTabs;
 import com.yansunsky.sneakernet.items.ModItems;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -72,6 +73,9 @@ public class SneakerNet {
     public SneakerNet(IEventBus modEventBus, ModContainer modContainer) {
         // 注册物品
         ModItems.register(modEventBus);
+
+        // 注册创造物品栏
+        ModCreativeTabs.register(modEventBus);
 
         // 注册配置
         Config.register(modContainer);
