@@ -13,6 +13,7 @@ import com.yansunsky.sneakernet.items.PackageItem;
 import com.mojang.brigadier.CommandDispatcher;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
@@ -57,6 +58,41 @@ public class SneakerNetCommands {
     /** keygen 后自动信任本服时使用的默认服务器名 */
     private static final String SELF_SERVER_NAME = "当前服务器";
 
+    /**
+     * 动态补全：列出当前所有可信服务器名作为 Tab 候选。
+     * <p>
+     * 含非 ASCII（如中文）或空格的名字会自动加引号，确保补全后能被命令解析器正确解析。
+     * </p>
+     */
+    private static final SuggestionProvider<CommandSourceStack> TRUSTED_SERVER_SUGGESTIONS = (ctx, builder) -> {
+        KeyManager keyManager = SneakerNet.getKeyManager();
+        if (keyManager != null) {
+            for (KeyManager.TrustedServer server : keyManager.getTrustedServers()) {
+                builder.suggest(quoteIfNeeded(server.name()));
+            }
+        }
+        return builder.buildFuture();
+    };
+
+    /**
+     * 若名称包含非 ASCII 字符、空格或引号，则用双引号包裹并转义，
+     * 使其符合 Brigadier 带引号字符串语法；否则原样返回。
+     */
+    private static String quoteIfNeeded(String name) {
+        boolean needsQuote = false;
+        for (int i = 0; i < name.length(); i++) {
+            char c = name.charAt(i);
+            if (c > 127 || c == ' ' || c == '"' || c == '\\') {
+                needsQuote = true;
+                break;
+            }
+        }
+        if (!needsQuote) {
+            return name;
+        }
+        return '"' + name.replace("\\", "\\\\").replace("\"", "\\\"") + '"';
+    }
+
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("sneakernet")
                 // ├── keygen（仅 OP）
@@ -70,25 +106,27 @@ public class SneakerNetCommands {
                 // ├── trust（仅 OP）— 从文件导入
                 .then(Commands.literal("trust")
                         .requires(src -> src.hasPermission(2))
-                        .then(Commands.argument("name", StringArgumentType.word())
+                        .then(Commands.argument("name", StringArgumentType.string())
                                 .then(Commands.argument("file", StringArgumentType.string())
                                         .executes(ctx -> executeTrust(ctx)))))
                 // ├── trustkey（仅 OP）— 直接输入公钥信任
                 .then(Commands.literal("trustkey")
                         .requires(src -> src.hasPermission(2))
-                        .then(Commands.argument("name", StringArgumentType.word())
+                        .then(Commands.argument("name", StringArgumentType.string())
                                 .then(Commands.argument("pubkey", StringArgumentType.greedyString())
                                         .executes(ctx -> executeTrustKey(ctx)))))
                 // ├── untrust（仅 OP）
                 .then(Commands.literal("untrust")
                         .requires(src -> src.hasPermission(2))
-                        .then(Commands.argument("name", StringArgumentType.word())
+                        .then(Commands.argument("name", StringArgumentType.string())
+                                .suggests(TRUSTED_SERVER_SUGGESTIONS)
                                 .executes(ctx -> executeUntrust(ctx))))
                 // ├── rename（仅 OP）
                 .then(Commands.literal("rename")
                         .requires(src -> src.hasPermission(2))
-                        .then(Commands.argument("oldname", StringArgumentType.word())
-                                .then(Commands.argument("newname", StringArgumentType.word())
+                        .then(Commands.argument("oldname", StringArgumentType.string())
+                                .suggests(TRUSTED_SERVER_SUGGESTIONS)
+                                .then(Commands.argument("newname", StringArgumentType.string())
                                         .executes(ctx -> executeRename(ctx)))))
                 // ├── list（仅 OP）— 详细信息
                 .then(Commands.literal("list")
@@ -101,8 +139,9 @@ public class SneakerNetCommands {
                 // ├── bind（所有玩家）
                 .then(Commands.literal("bind")
                         .requires(src -> src.hasPermission(0))
-                        // /sneakernet bind <name>
-                        .then(Commands.argument("name", StringArgumentType.word())
+                        // /sneakernet bind <name> — 支持 Tab 补全可信服务器名
+                        .then(Commands.argument("name", StringArgumentType.string())
+                                .suggests(TRUSTED_SERVER_SUGGESTIONS)
                                 .executes(ctx -> executeBind(ctx)))
                         // /sneakernet bind clear
                         .then(Commands.literal("clear")
