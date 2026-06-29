@@ -93,37 +93,16 @@ public class SneakerNet {
     }
 
     /**
-     * 通用设置：初始化密钥管理器、黑名单、线程池
+     * 通用设置：仅创建与世界无关的客户端目录。
+     * <p>
+     * 注意：密钥管理器、黑名单、密码学线程池等<strong>服务器侧</strong>资源
+     * 不在此初始化，而是绑定到服务器生命周期（{@link #onServerStarting}），
+     * 因为单人模式下每次进入/退出存档都会启动/停止一个集成服务器，
+     * 而 {@link FMLCommonSetupEvent} 在整个游戏进程中只触发一次。
+     * </p>
      */
     private void onCommonSetup(FMLCommonSetupEvent event) {
-        // [1] 初始化密码学线程池
-        cryptoExecutor = new CryptoExecutor();
-
-        // [2] 初始化密钥管理器
-        Path configDir = FMLPaths.CONFIGDIR.get().resolve("sneakernet");
-        LOGGER.info("[SneakerNet] 配置目录: {}", configDir.toAbsolutePath());
-        LOGGER.info("[SneakerNet] FMLPaths.CONFIGDIR={}", FMLPaths.CONFIGDIR.get());
-        keyManager = new KeyManager(configDir);
-
-        try {
-            keyManager.loadOrGenerate();
-            LOGGER.info("[SneakerNet] 密钥管理器初始化成功");
-        } catch (Exception e) {
-            LOGGER.error("[SneakerNet] 密钥管理器初始化失败！", e);
-        }
-
-        // [3] 初始化黑名单数据库
-        blacklist = new VoucherBlacklist(configDir);
-        try {
-            blacklist.initialize();
-            blacklist.cleanExpired();
-            LOGGER.info("[SneakerNet] 黑名单数据库初始化成功");
-        } catch (Exception e) {
-            LOGGER.error("[SneakerNet] 黑名单数据库初始化失败！", e);
-            blacklist = null; // 置 null 防止后续误用无效对象
-        }
-
-        // [4] 确保客户端目录存在
+        // 确保客户端目录存在（与具体世界无关）
         try {
             Path vouchersDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/");
             Files.createDirectories(vouchersDir);
@@ -136,15 +115,60 @@ public class SneakerNet {
     }
 
     /**
-     * 服务器启动事件（目前无额外操作，密钥和黑名单在 FMLCommonSetup 中已初始化）
+     * 初始化服务器侧资源：密码学线程池、密钥管理器、黑名单。
+     * <p>
+     * 可重复调用（幂等）：线程池若已关闭会重建，密钥/黑名单会重新加载，
+     * 以支持单人模式下反复开关存档。
+     * </p>
      */
-    @SubscribeEvent
-    public void onServerStarting(ServerStartingEvent event) {
-        LOGGER.info("[SneakerNet] 服务器启动中...");
+    private void initServerResources() {
+        // [1] 密码学线程池：不存在或已关闭则重建
+        if (cryptoExecutor == null || cryptoExecutor.isShutdown()) {
+            cryptoExecutor = new CryptoExecutor();
+            LOGGER.info("[SneakerNet] 密码学线程池已就绪");
+        }
+
+        // [2] 密钥管理器（密钥存于全局 config/sneakernet/，与世界无关）
+        Path configDir = FMLPaths.CONFIGDIR.get().resolve("sneakernet");
+        LOGGER.info("[SneakerNet] 配置目录: {}", configDir.toAbsolutePath());
+        keyManager = new KeyManager(configDir);
+        try {
+            keyManager.loadOrGenerate();
+            LOGGER.info("[SneakerNet] 密钥管理器初始化成功");
+        } catch (Exception e) {
+            LOGGER.error("[SneakerNet] 密钥管理器初始化失败！", e);
+        }
+
+        // [3] 黑名单数据库
+        blacklist = new VoucherBlacklist(configDir);
+        try {
+            blacklist.initialize();
+            blacklist.cleanExpired();
+            LOGGER.info("[SneakerNet] 黑名单数据库初始化成功");
+        } catch (Exception e) {
+            LOGGER.error("[SneakerNet] 黑名单数据库初始化失败！", e);
+            blacklist = null; // 置 null 防止后续误用无效对象
+        }
     }
 
     /**
-     * 服务器停止事件：关闭资源
+     * 服务器启动事件：初始化服务器侧资源（线程池、密钥、黑名单）。
+     * <p>
+     * 单人模式下每次进入存档都会触发，确保资源是新鲜可用的。
+     * </p>
+     */
+    @SubscribeEvent
+    public void onServerStarting(ServerStartingEvent event) {
+        LOGGER.info("[SneakerNet] 服务器启动中，初始化资源...");
+        initServerResources();
+    }
+
+    /**
+     * 服务器停止事件：关闭资源并清空引用。
+     * <p>
+     * 单人模式下退出存档时触发。引用置 null，再次进入存档时由
+     * {@link #onServerStarting} 重建，避免使用已终止的线程池/已关闭的数据库。
+     * </p>
      */
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
@@ -156,11 +180,15 @@ public class SneakerNet {
             } catch (Exception e) {
                 LOGGER.error("[SneakerNet] 关闭黑名单数据库失败", e);
             }
+            blacklist = null;
         }
 
         if (cryptoExecutor != null) {
             cryptoExecutor.shutdown();
+            cryptoExecutor = null;
         }
+
+        keyManager = null;
     }
 
     /**
