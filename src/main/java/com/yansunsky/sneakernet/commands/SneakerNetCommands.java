@@ -37,17 +37,25 @@ import java.util.stream.Stream;
  * <p>
  * 子命令：
  * <ul>
- *   <li>keygen — 生成服务器密钥对（OP）</li>
- *   <li>showpub — 保存公钥到 JSON 文件（所有玩家）</li>
- *   <li>trust &lt;name&gt; &lt;file&gt; — 从 JSON 导入可信公钥（OP）</li>
+ *   <li>keygen — 生成/更新本服密钥对，自动信任本服并输出可复制公钥（OP）</li>
+ *   <li>showpub — 导出本服公钥到 JSON 文件（OP）</li>
+ *   <li>trust &lt;name&gt; &lt;file&gt; — 从 JSON 文件导入可信公钥（OP）</li>
+ *   <li>trustkey &lt;name&gt; &lt;base64&gt; — 直接用公钥字符串信任服务器（OP）</li>
  *   <li>untrust &lt;name&gt; — 移除可信服务器（OP）</li>
- *   <li>list — 列出所有可信服务器（OP）</li>
+ *   <li>rename &lt;old&gt; &lt;new&gt; — 重命名可信服务器（OP）</li>
+ *   <li>list — 列出所有可信服务器及详细信息（OP）</li>
+ *   <li>serverlist — 查看可信服务器名称列表（所有玩家）</li>
+ *   <li>bind &lt;name&gt; / bind clear — 绑定/解绑目标服务器（所有玩家）</li>
  *   <li>import [filename] — 从文件导入物品（所有玩家）</li>
+ *   <li>help — 显示所有命令说明（所有玩家）</li>
  * </ul>
  */
 public class SneakerNetCommands {
 
     private static final Logger LOGGER = SneakerNet.LOGGER;
+
+    /** keygen 后自动信任本服时使用的默认服务器名 */
+    private static final String SELF_SERVER_NAME = "当前服务器";
 
     public static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
         dispatcher.register(Commands.literal("sneakernet")
@@ -55,25 +63,41 @@ public class SneakerNetCommands {
                 .then(Commands.literal("keygen")
                         .requires(src -> src.hasPermission(2))
                         .executes(ctx -> executeKeygen(ctx)))
-                // ├── showpub（所有玩家）
+                // ├── showpub（仅 OP）
                 .then(Commands.literal("showpub")
-                        .requires(src -> src.hasPermission(0))
+                        .requires(src -> src.hasPermission(2))
                         .executes(ctx -> executeShowpub(ctx)))
-                // ├── trust（仅 OP）
+                // ├── trust（仅 OP）— 从文件导入
                 .then(Commands.literal("trust")
                         .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("name", StringArgumentType.word())
                                 .then(Commands.argument("file", StringArgumentType.string())
                                         .executes(ctx -> executeTrust(ctx)))))
+                // ├── trustkey（仅 OP）— 直接输入公钥信任
+                .then(Commands.literal("trustkey")
+                        .requires(src -> src.hasPermission(2))
+                        .then(Commands.argument("name", StringArgumentType.word())
+                                .then(Commands.argument("pubkey", StringArgumentType.greedyString())
+                                        .executes(ctx -> executeTrustKey(ctx)))))
                 // ├── untrust（仅 OP）
                 .then(Commands.literal("untrust")
                         .requires(src -> src.hasPermission(2))
                         .then(Commands.argument("name", StringArgumentType.word())
                                 .executes(ctx -> executeUntrust(ctx))))
-                // ├── list（仅 OP）
+                // ├── rename（仅 OP）
+                .then(Commands.literal("rename")
+                        .requires(src -> src.hasPermission(2))
+                        .then(Commands.argument("oldname", StringArgumentType.word())
+                                .then(Commands.argument("newname", StringArgumentType.word())
+                                        .executes(ctx -> executeRename(ctx)))))
+                // ├── list（仅 OP）— 详细信息
                 .then(Commands.literal("list")
                         .requires(src -> src.hasPermission(2))
                         .executes(ctx -> executeList(ctx)))
+                // ├── serverlist（所有玩家）— 仅服务器名
+                .then(Commands.literal("serverlist")
+                        .requires(src -> src.hasPermission(0))
+                        .executes(ctx -> executeServerList(ctx)))
                 // ├── bind（所有玩家）
                 .then(Commands.literal("bind")
                         .requires(src -> src.hasPermission(0))
@@ -83,12 +107,16 @@ public class SneakerNetCommands {
                         // /sneakernet bind clear
                         .then(Commands.literal("clear")
                                 .executes(ctx -> executeBindClear(ctx))))
-                // └── import（所有玩家）
+                // ├── import（所有玩家）
                 .then(Commands.literal("import")
                         .requires(src -> src.hasPermission(0))
                         .executes(ctx -> executeImportAll(ctx))  // 不指定文件 → 导入全部
                         .then(Commands.argument("filename", StringArgumentType.string())
                                 .executes(ctx -> executeImportOne(ctx))))  // 指定文件名
+                // └── help（所有玩家）
+                .then(Commands.literal("help")
+                        .requires(src -> src.hasPermission(0))
+                        .executes(ctx -> executeHelp(ctx)))
         );
     }
 
@@ -103,17 +131,39 @@ public class SneakerNetCommands {
         }
 
         try {
-            // 删除现有密钥文件并重新生成
+            // 删除现有密钥文件并重新生成（已有则更新）
             java.nio.file.Path configDir = keyManager.getConfigDir();
             java.nio.file.Files.deleteIfExists(configDir.resolve("local_key.der"));
             java.nio.file.Files.deleteIfExists(configDir.resolve("local_pub.der"));
 
             keyManager.loadOrGenerate();
 
-            String keyId = KeyManager.computeKeyId(keyManager.getPublicKey());
+            // 生成后直接信任本服，默认名"当前服务器"
+            keyManager.trustSelf(SELF_SERVER_NAME);
+
+            String keyId = keyManager.getLocalKeyId();
+            String pubKeyBase64 = keyManager.getLocalPublicKeyBase64();
+
             source.sendSuccess(() -> Component.translatable("sneakernet.keygen.success", keyId)
                     .withStyle(ChatFormatting.GREEN), true);
-            LOGGER.info("[SneakerNet] 新密钥对已生成，KeyID: {}", keyId);
+            source.sendSuccess(() -> Component.translatable("sneakernet.keygen.trusted_self", SELF_SERVER_NAME)
+                    .withStyle(ChatFormatting.GRAY), false);
+
+            // 提示行
+            source.sendSuccess(() -> Component.translatable("sneakernet.keygen.pubkey_hint")
+                    .withStyle(ChatFormatting.YELLOW), false);
+            // 可点击复制的公钥行（点击即复制完整 Base64 到剪贴板）
+            source.sendSuccess(() -> Component.literal(pubKeyBase64)
+                    .withStyle(style -> style
+                            .withColor(ChatFormatting.AQUA)
+                            .withUnderlined(true)
+                            .withClickEvent(new net.minecraft.network.chat.ClickEvent(
+                                    net.minecraft.network.chat.ClickEvent.Action.COPY_TO_CLIPBOARD, pubKeyBase64))
+                            .withHoverEvent(new net.minecraft.network.chat.HoverEvent(
+                                    net.minecraft.network.chat.HoverEvent.Action.SHOW_TEXT,
+                                    Component.translatable("sneakernet.keygen.pubkey_copy_tooltip")))), false);
+
+            LOGGER.info("[SneakerNet] 新密钥对已生成并信任本服，KeyID: {}", keyId);
             return 1;
         } catch (Exception e) {
             source.sendFailure(Component.literal("生成密钥对失败: " + e.getMessage()));
@@ -177,6 +227,33 @@ public class SneakerNetCommands {
         }
     }
 
+    // ─── /sneakernet trustkey <name> <pubkey> ───
+
+    /**
+     * 直接输入服务器名与对方公钥（Base64）来信任服务器，无需文件交换。
+     */
+    private static int executeTrustKey(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        String name = StringArgumentType.getString(ctx, "name");
+        String pubKey = StringArgumentType.getString(ctx, "pubkey");
+        KeyManager keyManager = SneakerNet.getKeyManager();
+        if (keyManager == null) {
+            source.sendFailure(Component.literal("密钥管理器未初始化"));
+            return 0;
+        }
+
+        try {
+            keyManager.addTrustedServerByBase64(name, pubKey);
+            source.sendSuccess(() -> Component.translatable("sneakernet.trust.success", name)
+                    .withStyle(ChatFormatting.GREEN), true);
+            return 1;
+        } catch (Exception e) {
+            source.sendFailure(Component.translatable("sneakernet.trustkey.failed", e.getMessage())
+                    .withStyle(ChatFormatting.RED));
+            return 0;
+        }
+    }
+
     // ─── /sneakernet untrust <name> ───
 
     private static int executeUntrust(CommandContext<CommandSourceStack> ctx) {
@@ -200,6 +277,37 @@ public class SneakerNetCommands {
             }
         } catch (IOException e) {
             source.sendFailure(Component.literal("移除可信服务器失败: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    // ─── /sneakernet rename <oldname> <newname> ───
+
+    /**
+     * 重命名一个已有的可信服务器。
+     */
+    private static int executeRename(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        String oldName = StringArgumentType.getString(ctx, "oldname");
+        String newName = StringArgumentType.getString(ctx, "newname");
+        KeyManager keyManager = SneakerNet.getKeyManager();
+        if (keyManager == null) {
+            source.sendFailure(Component.literal("密钥管理器未初始化"));
+            return 0;
+        }
+
+        try {
+            if (keyManager.renameTrustedServer(oldName, newName)) {
+                source.sendSuccess(() -> Component.translatable("sneakernet.rename.success", oldName, newName)
+                        .withStyle(ChatFormatting.GREEN), true);
+                return 1;
+            } else {
+                source.sendFailure(Component.translatable("sneakernet.rename.not_found", oldName)
+                        .withStyle(ChatFormatting.RED));
+                return 0;
+            }
+        } catch (IOException e) {
+            source.sendFailure(Component.literal("重命名失败: " + e.getMessage()));
             return 0;
         }
     }
@@ -228,6 +336,35 @@ public class SneakerNetCommands {
             ).withStyle(ChatFormatting.WHITE), false);
         }
 
+        return servers.size();
+    }
+
+    // ─── /sneakernet serverlist ───
+
+    /**
+     * 列出所有可信服务器名称（供普通玩家查看，仅展示服务器名）。
+     */
+    private static int executeServerList(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        KeyManager keyManager = SneakerNet.getKeyManager();
+        if (keyManager == null) {
+            source.sendFailure(Component.literal("密钥管理器未初始化"));
+            return 0;
+        }
+
+        var servers = keyManager.getTrustedServers();
+        if (servers.isEmpty()) {
+            source.sendSuccess(() -> Component.translatable("sneakernet.list.empty")
+                    .withStyle(ChatFormatting.GRAY), false);
+            return 0;
+        }
+
+        source.sendSuccess(() -> Component.translatable("sneakernet.serverlist.header")
+                .withStyle(ChatFormatting.GOLD), false);
+        for (var server : servers) {
+            source.sendSuccess(() -> Component.literal("  - " + server.name())
+                    .withStyle(ChatFormatting.WHITE), false);
+        }
         return servers.size();
     }
 
@@ -469,6 +606,58 @@ public class SneakerNetCommands {
                 }
             });
         });
+    }
+
+    // ─── /sneakernet help ───
+
+    /**
+     * 显示所有命令的说明。OP 会额外看到管理员命令。
+     */
+    private static int executeHelp(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        boolean isOp = source.hasPermission(2);
+
+        source.sendSuccess(() -> Component.translatable("sneakernet.help.header")
+                .withStyle(ChatFormatting.GOLD, ChatFormatting.BOLD), false);
+
+        // 玩家命令
+        source.sendSuccess(() -> Component.translatable("sneakernet.help.section_player")
+                .withStyle(ChatFormatting.AQUA), false);
+        helpLine(source, "/sneakernet help", "sneakernet.help.cmd.help");
+        helpLine(source, "/sneakernet serverlist", "sneakernet.help.cmd.serverlist");
+        helpLine(source, "/sneakernet bind ", "sneakernet.help.cmd.bind");
+        helpLine(source, "/sneakernet bind clear", "sneakernet.help.cmd.bind_clear");
+        helpLine(source, "/sneakernet import", "sneakernet.help.cmd.import");
+
+        // 管理员命令
+        if (isOp) {
+            source.sendSuccess(() -> Component.translatable("sneakernet.help.section_admin")
+                    .withStyle(ChatFormatting.LIGHT_PURPLE), false);
+            helpLine(source, "/sneakernet keygen", "sneakernet.help.cmd.keygen");
+            helpLine(source, "/sneakernet showpub", "sneakernet.help.cmd.showpub");
+            helpLine(source, "/sneakernet trust ", "sneakernet.help.cmd.trust");
+            helpLine(source, "/sneakernet trustkey ", "sneakernet.help.cmd.trustkey");
+            helpLine(source, "/sneakernet rename ", "sneakernet.help.cmd.rename");
+            helpLine(source, "/sneakernet untrust ", "sneakernet.help.cmd.untrust");
+            helpLine(source, "/sneakernet list", "sneakernet.help.cmd.list");
+        }
+        return 1;
+    }
+
+    /**
+     * 输出一行帮助：可点击的命令（点击填入聊天栏）+ 说明文本。
+     */
+    private static void helpLine(CommandSourceStack source, String command, String descKey) {
+        source.sendSuccess(() -> Component.literal(command)
+                .withStyle(style -> style
+                        .withColor(ChatFormatting.YELLOW)
+                        .withClickEvent(new net.minecraft.network.chat.ClickEvent(
+                                net.minecraft.network.chat.ClickEvent.Action.SUGGEST_COMMAND, command))
+                        .withHoverEvent(new net.minecraft.network.chat.HoverEvent(
+                                net.minecraft.network.chat.HoverEvent.Action.SHOW_TEXT,
+                                Component.translatable("sneakernet.help.click_to_fill"))))
+                .append(Component.literal(" - ").withStyle(ChatFormatting.DARK_GRAY))
+                .append(Component.translatable(descKey).withStyle(ChatFormatting.GRAY)), false);
     }
 
     // ─── 导入结果 ───

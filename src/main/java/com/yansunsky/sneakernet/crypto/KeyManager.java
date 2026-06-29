@@ -168,6 +168,32 @@ public class KeyManager {
     }
 
     /**
+     * 获取本地公钥的 Base64 编码字符串
+     * <p>
+     * 被 SneakerNetCommands 调用，用于在聊天中输出方便复制的公钥，
+     * 供对方服务器使用 /sneakernet trustkey 直接信任。
+     * </p>
+     *
+     * @return 本地公钥 DER X.509 的 Base64 字符串
+     * @throws IllegalStateException 如果密钥对尚未加载
+     */
+    public String getLocalPublicKeyBase64() {
+        if (keyPair == null) {
+            throw new IllegalStateException("密钥对尚未加载，请先调用 loadOrGenerate()");
+        }
+        return Base64.getEncoder().encodeToString(keyPair.getPublic().getEncoded());
+    }
+
+    /**
+     * 获取本地公钥的 KeyID
+     *
+     * @return 本地公钥 KeyID，密钥对未加载时返回 "N/A"
+     */
+    public String getLocalKeyId() {
+        return keyPair != null ? computeKeyId(keyPair.getPublic()) : "N/A";
+    }
+
+    /**
      * 获取配置目录路径
      * <p>
      * 被 SneakerNetCommands 调用，用于定位公钥导出文件等。
@@ -271,6 +297,87 @@ public class KeyManager {
         saveTrustedServers();
 
         SneakerNet.LOGGER.info("[SneakerNet] 已添加可信服务器: name={}, keyId={}", name, keyId);
+    }
+
+    /**
+     * 直接使用 Base64 公钥字符串添加可信服务器（无需文件）
+     * <p>
+     * 被 /sneakernet trustkey 调用。若该公钥（KeyID）已存在，则更新其名称。
+     * </p>
+     *
+     * @param name         服务器名称（本地方便识别的别名）
+     * @param pubKeyBase64 对方公钥 DER X.509 的 Base64 字符串
+     * @throws GeneralSecurityException 如果公钥解析失败
+     * @throws IOException              如果持久化失败
+     */
+    public void addTrustedServerByBase64(String name, String pubKeyBase64)
+            throws GeneralSecurityException, IOException {
+        // 解析公钥（同时校验 Base64 与 X.509 结构合法性）
+        byte[] pubKeyBytes;
+        try {
+            pubKeyBytes = Base64.getDecoder().decode(pubKeyBase64.trim());
+        } catch (IllegalArgumentException e) {
+            throw new GeneralSecurityException("公钥不是合法的 Base64 字符串");
+        }
+        X509EncodedKeySpec keySpec = new X509EncodedKeySpec(pubKeyBytes);
+        KeyFactory kf = KeyFactory.getInstance(EC_ALGORITHM);
+        PublicKey pubKey = kf.generatePublic(keySpec);
+
+        String keyId = computeKeyId(pubKey);
+        String fingerprint = computeFingerprint(pubKey);
+        String normalizedBase64 = Base64.getEncoder().encodeToString(pubKey.getEncoded());
+
+        // 添加或更新（按 KeyID 去重）
+        TrustedServer server = new TrustedServer(name, keyId, normalizedBase64, fingerprint);
+        trustedServers.put(keyId, server);
+
+        saveTrustedServers();
+        SneakerNet.LOGGER.info("[SneakerNet] 已通过公钥添加可信服务器: name={}, keyId={}", name, keyId);
+    }
+
+    /**
+     * 信任本服自身（keygen 后调用）
+     * <p>
+     * 将本地公钥以指定名称加入可信列表，使本服可作为 Ticket 导出目标。
+     * 若本地公钥已在可信列表中，则更新其名称。
+     * </p>
+     *
+     * @param name 本服在可信列表中的显示名称
+     * @throws IOException 如果持久化失败
+     */
+    public void trustSelf(String name) throws IOException {
+        if (keyPair == null) {
+            throw new IllegalStateException("密钥对尚未加载，请先调用 loadOrGenerate()");
+        }
+        PublicKey pubKey = keyPair.getPublic();
+        String keyId = computeKeyId(pubKey);
+        String fingerprint = computeFingerprint(pubKey);
+        String pubKeyBase64 = Base64.getEncoder().encodeToString(pubKey.getEncoded());
+
+        trustedServers.put(keyId, new TrustedServer(name, keyId, pubKeyBase64, fingerprint));
+        saveTrustedServers();
+        SneakerNet.LOGGER.info("[SneakerNet] 已信任本服: name={}, keyId={}", name, keyId);
+    }
+
+    /**
+     * 重命名可信服务器
+     *
+     * @param oldName 现有服务器名称
+     * @param newName 新的服务器名称
+     * @return true 表示成功改名，false 表示未找到 oldName
+     * @throws IOException 如果持久化失败
+     */
+    public boolean renameTrustedServer(String oldName, String newName) throws IOException {
+        for (Map.Entry<String, TrustedServer> entry : trustedServers.entrySet()) {
+            TrustedServer s = entry.getValue();
+            if (s.name().equals(oldName)) {
+                entry.setValue(new TrustedServer(newName, s.keyId(), s.pubKeyBase64(), s.fingerprint()));
+                saveTrustedServers();
+                SneakerNet.LOGGER.info("[SneakerNet] 已重命名可信服务器: {} → {}", oldName, newName);
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
