@@ -2,6 +2,8 @@
 
 我的世界 1.21.1 NeoForge 实验性跨服务器传递物品模组
 
+> English documentation: [README_EN.md](README_EN.md)
+
 ## 简介
 
 SneakerNet 是一个基于物理介质（"SneakerNet"）实现 Minecraft 服务器之间物品流转的安全模组。  
