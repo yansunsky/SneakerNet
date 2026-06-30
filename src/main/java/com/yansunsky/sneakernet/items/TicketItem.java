@@ -171,9 +171,11 @@ public class TicketItem extends Item {
                                 "sneakernet.ticket.export_success", fileName
                         ).withStyle(ChatFormatting.GREEN));
                     }
-                    // 提示玩家如何导出/导入包裹
+                    // 提示玩家如何导出/导入包裹，并告知凭证有效时长
+                    int ttlHours = Config.VOUCHER_TTL_HOURS.get();
+                    String ttlText = formatTtl(ttlHours);
                     player.sendSystemMessage(Component.translatable(
-                            "sneakernet.ticket.export_hint"
+                            "sneakernet.ticket.export_hint", ttlText
                     ).withStyle(ChatFormatting.YELLOW));
                 });
             } else {
@@ -273,6 +275,27 @@ public class TicketItem extends Item {
         if (be != null) {
             be.setChanged();
         }
+    }
+
+    /**
+     * 将 TTL 小时数格式化为便于阅读的文本。
+     * <p>
+     * 例如：24 → "24 小时"，48 → "2 天"，720 → "30 天"，1 → "1 小时"。
+     * 非整天会保留小时部分，例如 25 → "1 天 1 小时"，13 → "13 小时"。
+     * </p>
+     */
+    private static String formatTtl(int hours) {
+        if (hours % 24 == 0) {
+            int days = hours / 24;
+            if (days == 1) return "1 天";
+            return days + " 天";
+        }
+        int days = hours / 24;
+        int remHours = hours % 24;
+        if (days == 0) {
+            return hours + " 小时";
+        }
+        return days + " 天 " + remHours + " 小时";
     }
 
     // ─── 导出结果 ───

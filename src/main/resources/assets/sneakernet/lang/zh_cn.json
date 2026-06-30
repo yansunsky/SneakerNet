@@ -7,7 +7,7 @@
   "sneakernet.ticket.not_container": "你需要对准一个可以存放物品的容器才能导出物品！",
   "sneakernet.ticket.no_trusted_servers": "未配置可信服务器。请先使用 /sneakernet trust 添加服务器。",
   "sneakernet.ticket.export_success": "凭证导出成功：%s",
-  "sneakernet.ticket.export_hint": "凭证已保存到本地，请务必在24小时内登录目标服务器后使用 /sneakernet import 即可导出包裹。",
+  "sneakernet.ticket.export_hint": "凭证已保存到本地，有效时长 %s，请在过期前登录目标服务器使用 /sneakernet import 导出包裹。",
   "sneakernet.ticket.export_failed": "导出失败：%s",
   "sneakernet.ticket.no_target": "请先使用 /sneakernet bind 绑定目标服务器。你可以使用指令 /sneakernet serverlist 查看服务器列表。",
 
