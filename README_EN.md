@@ -68,6 +68,7 @@ Player on A:                             Player on B:
 | Command | Description | Permission |
 |---------|-------------|------------|
 | `/sneakernet keygen` | Generate/update this server's key pair, auto-trust self, and print a copyable public key | OP (level 2) |
+| `/sneakernet pubkey` | Show the current public key in chat, click to copy (does not regenerate the key) | OP (level 2) |
 | `/sneakernet showpub` | Export this server's public key to a JSON file (for file exchange) | OP (level 2) |
 | `/sneakernet trust <name> <file>` | Import trust from a public key JSON file | OP (level 2) |
 | `/sneakernet trustkey <name> <pubkey>` | Trust by pasting the other side's public key (Base64) directly | OP (level 2) |

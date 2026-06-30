@@ -341,6 +341,10 @@ public class KeyManager {
      * 将本地公钥以指定名称加入可信列表，使本服可作为 Ticket 导出目标。
      * 若本地公钥已在可信列表中，则更新其名称。
      * </p>
+     * <p>
+     * 注意：keygen 更新密钥后，旧公钥的 KeyID 与新公钥不同，直接 put 会让旧的同名条目
+     * 残留为失效记录。因此本方法会先移除所有同名旧条目，再放入新公钥。
+     * </p>
      *
      * @param name 本服在可信列表中的显示名称
      * @throws IOException 如果持久化失败
@@ -353,6 +357,9 @@ public class KeyManager {
         String keyId = computeKeyId(pubKey);
         String fingerprint = computeFingerprint(pubKey);
         String pubKeyBase64 = Base64.getEncoder().encodeToString(pubKey.getEncoded());
+
+        // 移除同名旧条目（keygen 更新密钥后，旧公钥 KeyID 的条目会残留为失效记录）
+        trustedServers.entrySet().removeIf(e -> e.getValue().name().equals(name));
 
         trustedServers.put(keyId, new TrustedServer(name, keyId, pubKeyBase64, fingerprint));
         saveTrustedServers();

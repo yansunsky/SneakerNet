@@ -39,6 +39,7 @@ import java.util.stream.Stream;
  * 子命令：
  * <ul>
  *   <li>keygen — 生成/更新本服密钥对，自动信任本服并输出可复制公钥（OP）</li>
+ *   <li>pubkey — 聊天栏显示当前公钥，可点击复制（OP）</li>
  *   <li>showpub — 导出本服公钥到 JSON 文件（OP）</li>
  *   <li>trust &lt;name&gt; &lt;file&gt; — 从 JSON 文件导入可信公钥（OP）</li>
  *   <li>trustkey &lt;name&gt; &lt;base64&gt; — 直接用公钥字符串信任服务器（OP）</li>
@@ -103,6 +104,10 @@ public class SneakerNetCommands {
                 .then(Commands.literal("showpub")
                         .requires(src -> src.hasPermission(2))
                         .executes(ctx -> executeShowpub(ctx)))
+                // ├── pubkey（仅 OP）— 聊天栏显示当前公钥，可点击复制
+                .then(Commands.literal("pubkey")
+                        .requires(src -> src.hasPermission(2))
+                        .executes(ctx -> executePubkey(ctx)))
                 // ├── trust（仅 OP）— 从文件导入
                 .then(Commands.literal("trust")
                         .requires(src -> src.hasPermission(2))
@@ -231,6 +236,47 @@ public class SneakerNetCommands {
             return 1;
         } catch (Exception e) {
             source.sendFailure(Component.literal("导出公钥失败: " + e.getMessage()));
+            return 0;
+        }
+    }
+
+    // ─── /sneakernet pubkey ───
+
+    /**
+     * 在聊天栏显示当前服务器公钥，可点击复制，不重新生成密钥。
+     */
+    private static int executePubkey(CommandContext<CommandSourceStack> ctx) {
+        CommandSourceStack source = ctx.getSource();
+        KeyManager keyManager = SneakerNet.getKeyManager();
+        if (keyManager == null) {
+            source.sendFailure(Component.literal("密钥管理器未初始化"));
+            return 0;
+        }
+
+        try {
+            String keyId = keyManager.getLocalKeyId();
+            String pubKeyBase64 = keyManager.getLocalPublicKeyBase64();
+            String fingerprint = keyManager.getLocalFingerprint();
+
+            source.sendSuccess(() -> Component.translatable("sneakernet.pubkey.info", keyId)
+                    .withStyle(ChatFormatting.GREEN), false);
+            source.sendSuccess(() -> Component.translatable("sneakernet.pubkey.fingerprint", fingerprint)
+                    .withStyle(ChatFormatting.GRAY), false);
+            source.sendSuccess(() -> Component.translatable("sneakernet.keygen.pubkey_hint")
+                    .withStyle(ChatFormatting.YELLOW), false);
+            // 可点击复制的公钥行
+            source.sendSuccess(() -> Component.literal(pubKeyBase64)
+                    .withStyle(style -> style
+                            .withColor(ChatFormatting.AQUA)
+                            .withUnderlined(true)
+                            .withClickEvent(new net.minecraft.network.chat.ClickEvent(
+                                    net.minecraft.network.chat.ClickEvent.Action.COPY_TO_CLIPBOARD, pubKeyBase64))
+                            .withHoverEvent(new net.minecraft.network.chat.HoverEvent(
+                                    net.minecraft.network.chat.HoverEvent.Action.SHOW_TEXT,
+                                    Component.translatable("sneakernet.keygen.pubkey_copy_tooltip")))), false);
+            return 1;
+        } catch (Exception e) {
+            source.sendFailure(Component.literal("获取公钥失败: " + e.getMessage()));
             return 0;
         }
     }
@@ -673,6 +719,7 @@ public class SneakerNetCommands {
             source.sendSuccess(() -> Component.translatable("sneakernet.help.section_admin")
                     .withStyle(ChatFormatting.LIGHT_PURPLE), false);
             helpLine(source, "/sneakernet keygen", "sneakernet.help.cmd.keygen");
+            helpLine(source, "/sneakernet pubkey", "sneakernet.help.cmd.pubkey");
             helpLine(source, "/sneakernet showpub", "sneakernet.help.cmd.showpub");
             helpLine(source, "/sneakernet trust ", "sneakernet.help.cmd.trust");
             helpLine(source, "/sneakernet trustkey ", "sneakernet.help.cmd.trustkey");
