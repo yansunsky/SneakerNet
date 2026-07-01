@@ -238,7 +238,9 @@ public class SneakerNet {
                 try {
                     Path vouchersDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/");
                     Files.createDirectories(vouchersDir);
-                    Path targetFile = vouchersDir.resolve(payload.suggestedFileName());
+                    // 清洗文件名：仅保留文件名部分，防止路径遍历（如 ../evil.bat）
+                    String safeName = Path.of(payload.suggestedFileName()).getFileName().toString();
+                    Path targetFile = vouchersDir.resolve(safeName);
                     Files.writeString(targetFile, payload.voucherJson());
                     LOGGER.info("[SneakerNet] 客户端已保存凭证：{} ({})",
                             payload.suggestedFileName(), targetFile);
@@ -254,15 +256,17 @@ public class SneakerNet {
         public static void handleImportResult(ImportResultPayload payload, IPayloadContext context) {
             context.enqueueWork(() -> {
                 try {
+                    // 清洗文件名：仅保留文件名部分，防止路径遍历
+                    String safeName = Path.of(payload.fileName()).getFileName().toString();
                     Path vouchersDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/");
-                    Path sourceFile = vouchersDir.resolve(payload.fileName());
+                    Path sourceFile = vouchersDir.resolve(safeName);
                     if (!Files.exists(sourceFile)) return;
 
                     if (payload.success()) {
                         // 导入成功 → 移到 redeemed/ 目录
                         Path redeemedDir = FMLPaths.GAMEDIR.get().resolve("sneakernet/redeemed/");
                         Files.createDirectories(redeemedDir);
-                        Files.move(sourceFile, redeemedDir.resolve(payload.fileName()));
+                        Files.move(sourceFile, redeemedDir.resolve(safeName));
                         LOGGER.info("[SneakerNet] 客户端已核销凭证: {}", payload.fileName());
                     }
                     // 导入失败则不删除，玩家可以重试

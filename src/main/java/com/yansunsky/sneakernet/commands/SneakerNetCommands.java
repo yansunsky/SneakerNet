@@ -293,8 +293,9 @@ public class SneakerNetCommands {
             return 0;
         }
 
-        // 解析文件路径（相对于 config/sneakernet/）
-        Path pubJsonFile = keyManager.getConfigDir().resolve(fileStr);
+        // 解析文件路径（相对于 config/sneakernet/），清洗防止路径遍历
+        String safeFile = Path.of(fileStr).getFileName().toString();
+        Path pubJsonFile = keyManager.getConfigDir().resolve(safeFile);
         if (!Files.exists(pubJsonFile)) {
             source.sendFailure(Component.translatable("sneakernet.trust.file_not_found", fileStr)
                     .withStyle(ChatFormatting.RED));
@@ -582,7 +583,9 @@ public class SneakerNetCommands {
         }
 
         String filename = StringArgumentType.getString(ctx, "filename");
-        Path voucherFile = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/" + filename);
+        // 清洗文件名，防止路径遍历
+        String safeFilename = Path.of(filename).getFileName().toString();
+        Path voucherFile = FMLPaths.GAMEDIR.get().resolve("sneakernet/vouchers/").resolve(safeFilename);
 
         if (!Files.exists(voucherFile)) {
             source.sendFailure(Component.translatable("sneakernet.import.file_not_found", filename)

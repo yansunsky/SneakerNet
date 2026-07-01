@@ -227,12 +227,14 @@ public class TicketItem extends Item {
             Files.createDirectories(voucherDir);
 
             String fileName = targetServer + "_" + voucher.generateFileName();
-            Path voucherFile = voucherDir.resolve(fileName);
+            // 防御性清洗：即使 targetServer 含非法字符也不会路径遍历
+            String safeFileName = Path.of(fileName).getFileName().toString();
+            Path voucherFile = voucherDir.resolve(safeFileName);
             Files.writeString(voucherFile, voucher.toJson());
 
-            voucherFiles.put(fileName, voucher.toJson());
+            voucherFiles.put(safeFileName, voucher.toJson());
 
-            LOGGER.info("[SneakerNet] 导出成功：目标服务器={}, 文件名={}", targetServer, fileName);
+            LOGGER.info("[SneakerNet] 导出成功：目标服务器={}, 文件名={}", targetServer, safeFileName);
             return ExportResult.success(voucherFiles);
 
         } catch (Exception e) {
